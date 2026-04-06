@@ -12,7 +12,7 @@ import { generateReport } from './report-pdf.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400'
 };
@@ -1171,6 +1171,179 @@ export default {
           status: 200,
           headers: { 'Content-Type': 'text/xml' }
         });
+      }
+    }
+
+    // ── GET /api/obligaciones ───────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/obligaciones') {
+      try {
+        const tipo   = url.searchParams.get('tipo');
+        const activo = url.searchParams.get('activo');
+
+        let q = 'SELECT * FROM obligaciones WHERE 1=1';
+        const v = [];
+        if (tipo)   { q += ' AND tipo = ?';   v.push(tipo); }
+        if (activo !== null && activo !== undefined && activo !== '') {
+          q += ' AND activo = ?'; v.push(parseInt(activo));
+        }
+        q += ' ORDER BY tipo ASC, dia_limite ASC, nombre ASC';
+
+        const result = await env.DB.prepare(q).bind(...v).all();
+        return json({ ok: true, obligaciones: result.results || [] });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── GET /api/obligaciones/pendientes ─────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/obligaciones/pendientes') {
+      try {
+        const now   = new Date();
+        const mes   = parseInt(url.searchParams.get('mes'))  || (now.getMonth() + 1);
+        const anio  = parseInt(url.searchParams.get('anio')) || now.getFullYear();
+        const mesStr = String(mes).padStart(2, '0');
+        const desde  = `${anio}-${mesStr}-01`;
+        const hastaDia = new Date(anio, mes, 0).getDate();
+        const hasta  = `${anio}-${mesStr}-${String(hastaDia).padStart(2, '0')}`;
+        const hoy    = now.getDate();
+        const esMesActual = (mes === now.getMonth() + 1 && anio === now.getFullYear());
+
+        // Get active obligations (monthly ones always, annual only if current month matches logic)
+        const obligs = await env.DB.prepare(
+          'SELECT * FROM obligaciones WHERE activo = 1 ORDER BY tipo ASC, dia_limite ASC'
+        ).all();
+
+        // Get gastos of the month
+        const gastosRes = await env.DB.prepare(
+          'SELECT id, numero, proveedor_nit, proveedor_nombre, total, fecha, categoria FROM gastos WHERE fecha BETWEEN ? AND ?'
+        ).bind(desde, hasta).all();
+        const gastosMes = gastosRes.results || [];
+
+        const pendientes = [];
+        const pagadas = [];
+
+        for (const ob of (obligs.results || [])) {
+          // Skip annual obligations unless we specifically want to show them
+          if (ob.frecuencia === 'anual') {
+            // Only show annual in the month of dia_limite or if no dia_limite, show in January
+            const mesOblig = ob.dia_limite ? 1 : 1; // annual obligations show every month as reminder
+            // Actually, show annual obligations always — user decides
+          }
+
+          // Check if paid: match by proveedor_nit or proveedor_nombre LIKE
+          let pagado = null;
+          for (const g of gastosMes) {
+            if (ob.proveedor_nit && g.proveedor_nit) {
+              const obNitClean = ob.proveedor_nit.replace(/\D/g, '');
+              const gNitClean  = g.proveedor_nit.replace(/\D/g, '');
+              if (obNitClean && gNitClean && gNitClean.startsWith(obNitClean.slice(0, 9))) {
+                pagado = g;
+                break;
+              }
+            }
+            if (!pagado && ob.proveedor_nombre && g.proveedor_nombre) {
+              const obName = ob.proveedor_nombre.toLowerCase();
+              const gName  = g.proveedor_nombre.toLowerCase();
+              if (gName.includes(obName) || obName.includes(gName)) {
+                pagado = g;
+                break;
+              }
+            }
+            // Also try matching by obligation name against proveedor_nombre
+            if (!pagado && ob.nombre) {
+              const obNombre = ob.nombre.toLowerCase();
+              const gName = g.proveedor_nombre.toLowerCase();
+              if (gName.includes(obNombre) || obNombre.includes(gName)) {
+                pagado = g;
+                break;
+              }
+            }
+          }
+
+          const diaLimite = ob.dia_limite || 0;
+          const diasRestantes = esMesActual ? (diaLimite - hoy) : null;
+          const vencido = esMesActual && diaLimite > 0 && hoy > diaLimite;
+
+          const item = {
+            ...ob,
+            dias_restantes: diasRestantes,
+            vencido: vencido && !pagado
+          };
+
+          if (pagado) {
+            pagadas.push({ ...item, gasto: pagado });
+          } else {
+            pendientes.push(item);
+          }
+        }
+
+        return json({
+          ok: true,
+          mes, anio,
+          pendientes,
+          pagadas,
+          total_pendientes: pendientes.length,
+          total_pagadas: pagadas.length
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── POST /api/obligaciones ──────────────────────────────
+    if (request.method === 'POST' && url.pathname === '/api/obligaciones') {
+      try {
+        const b = await request.json();
+        if (!b.nombre || !b.tipo || !b.frecuencia) {
+          return json({ error: 'nombre, tipo y frecuencia son requeridos' }, 400);
+        }
+
+        const result = await env.DB.prepare(`
+          INSERT INTO obligaciones (nombre, descripcion, tipo, categoria, proveedor_nit, proveedor_nombre, frecuencia, dia_limite, valor_estimado, medio_pago, notas)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        `).bind(
+          b.nombre, b.descripcion || null, b.tipo, b.categoria || null,
+          b.proveedor_nit || null, b.proveedor_nombre || null,
+          b.frecuencia, b.dia_limite || null, b.valor_estimado || null,
+          b.medio_pago || null, b.notas || null
+        ).run();
+
+        return json({ ok: true, id: result.meta?.last_row_id }, 201);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── PUT /api/obligaciones/:id ───────────────────────────
+    if (request.method === 'PUT' && url.pathname.match(/^\/api\/obligaciones\/\d+$/)) {
+      try {
+        const id = parseInt(url.pathname.split('/').pop());
+        const b = await request.json();
+
+        const sets = [];
+        const vals = [];
+        const allowed = ['nombre','descripcion','tipo','categoria','proveedor_nit','proveedor_nombre','frecuencia','dia_limite','valor_estimado','medio_pago','activo','notas'];
+        for (const [k, v] of Object.entries(b)) {
+          if (allowed.includes(k)) { sets.push(`${k} = ?`); vals.push(v); }
+        }
+        if (!sets.length) return json({ error: 'Sin campos validos' }, 400);
+
+        vals.push(id);
+        await env.DB.prepare(`UPDATE obligaciones SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+        return json({ ok: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── DELETE /api/obligaciones/:id ────────────────────────
+    if (request.method === 'DELETE' && url.pathname.match(/^\/api\/obligaciones\/\d+$/)) {
+      try {
+        const id = parseInt(url.pathname.split('/').pop());
+        await env.DB.prepare('UPDATE obligaciones SET activo = 0 WHERE id = ?').bind(id).run();
+        return json({ ok: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
       }
     }
 

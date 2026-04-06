@@ -695,6 +695,256 @@
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Obligaciones panel ── */
+  .oblig-panel {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+  }
+  .oblig-panel.show { display: flex; }
+
+  .oblig-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .oblig-header h2 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 18px;
+    color: var(--accent);
+  }
+  .oblig-tabs { display: flex; gap: 4px; margin-left: 16px; }
+  .oblig-tab {
+    padding: 5px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--muted);
+    transition: all 0.15s;
+    font-family: var(--mono);
+  }
+  .oblig-tab:hover { color: var(--text); }
+  .oblig-tab.active { background: var(--border); color: var(--text); }
+  .oblig-add-btn {
+    margin-left: auto;
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .oblig-add-btn:hover { background: #1a2e1a; }
+
+  .oblig-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px;
+  }
+
+  .oblig-section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 16px 0 8px 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .oblig-section-title:first-child { margin-top: 0; }
+  .oblig-section-title .oblig-count {
+    background: var(--border);
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+  }
+
+  .oblig-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--muted);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+    transition: all 0.15s;
+    cursor: pointer;
+  }
+  .oblig-card:hover { border-color: var(--muted); }
+  .oblig-card.green  { border-left-color: var(--accent); }
+  .oblig-card.yellow { border-left-color: var(--accent2); }
+  .oblig-card.red    { border-left-color: var(--warn); }
+
+  .oblig-card-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .oblig-card-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .oblig-card-name { font-weight: 500; font-size: 13px; color: var(--text); }
+  .oblig-tipo-tag {
+    font-size: 9px;
+    padding: 1px 8px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .oblig-tipo-tag.empresa { background: #1a2a3a; color: #a0c8f0; }
+  .oblig-tipo-tag.personal { background: #2a1a3a; color: #d0a0f0; }
+  .oblig-card-meta {
+    display: flex; gap: 12px; font-size: 11px; color: var(--muted); flex-wrap: wrap;
+  }
+  .oblig-card-meta span { display: flex; align-items: center; gap: 4px; }
+
+  .oblig-card-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+  .oblig-card-valor {
+    font-family: var(--serif);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .oblig-card-status {
+    font-size: 10px;
+    padding: 2px 10px;
+    border-radius: 3px;
+    letter-spacing: 0.03em;
+  }
+  .oblig-card-status.pagado { background: #1a3a1a; color: var(--accent); }
+  .oblig-card-status.proximo { background: #3a3a1a; color: var(--accent2); }
+  .oblig-card-status.vencido { background: #3a1a1a; color: var(--warn); }
+  .oblig-card-status.inactivo { background: var(--border); color: var(--muted); }
+
+  .oblig-card-actions {
+    display: flex; gap: 6px; margin-top: 4px;
+  }
+  .oblig-btn-sm {
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--mono);
+    transition: all 0.15s;
+  }
+  .oblig-btn-sm:hover { color: var(--text); border-color: var(--muted); }
+  .oblig-btn-sm.primary { border-color: var(--accent); color: var(--accent); }
+  .oblig-btn-sm.primary:hover { background: #1a2e1a; }
+
+  .oblig-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .oblig-empty-icon { font-size: 28px; opacity: 0.3; margin-bottom: 8px; }
+
+  /* ── Obligaciones summary bar ── */
+  .oblig-summary {
+    padding: 12px 24px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    gap: 24px;
+    font-size: 12px;
+  }
+  .oblig-summary .stat-value { font-size: 13px; }
+
+  /* ── Nav badge ── */
+  .nav-badge {
+    background: var(--warn);
+    color: #1a0d0d;
+    font-size: 9px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    margin-left: auto;
+    min-width: 16px;
+    text-align: center;
+  }
+
+  /* ── Obligacion form modal ── */
+  .oblig-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.7);
+    z-index: 160;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 60px 20px;
+    overflow-y: auto;
+  }
+  .oblig-overlay.show { display: flex; }
+  .oblig-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    max-width: 560px;
+    width: 100%;
+    padding: 24px;
+    animation: slideIn 0.2s ease;
+  }
+  .oblig-modal h3 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 16px;
+    color: var(--accent);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .oblig-modal h3 .dian-close { margin-left: auto; cursor: pointer; color: var(--muted); font-size: 18px; }
+  .oblig-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .oblig-form .full { grid-column: 1/-1; }
+  .oblig-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .oblig-form input, .oblig-form select, .oblig-form textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    width: 100%;
+  }
+  .oblig-form input:focus, .oblig-form select:focus, .oblig-form textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .oblig-form textarea { resize: vertical; min-height: 60px; }
+  .oblig-form-actions {
+    grid-column: 1/-1;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
 </style>
 </head>
 <body>
@@ -751,6 +1001,19 @@
       <div class="nav-label">Analisis</div>
       <div class="nav-item" onclick="abrirComparativo()" style="color:var(--accent2)">
         <div class="nav-dot" style="background:var(--accent2)"></div> Comparativo
+      </div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Obligaciones</div>
+      <div class="nav-item" id="nav-oblig-pend" onclick="showObligaciones('pendientes')">
+        <div class="nav-dot" style="background:var(--warn)"></div> Pendientes
+        <span class="nav-badge" id="oblig-badge" style="display:none">0</span>
+      </div>
+      <div class="nav-item" onclick="showObligaciones('todas')">
+        <div class="nav-dot"></div> Todas
+      </div>
+      <div class="nav-item" onclick="abrirFormObligacion()" style="color:var(--accent)">
+        <div class="nav-dot" style="background:var(--accent)"></div> + Agregar
       </div>
     </div>
     <div class="nav-section">
@@ -923,6 +1186,27 @@
       </table>
     </div>
 
+    <!-- Obligaciones panel (hidden by default) -->
+    <div class="oblig-panel" id="oblig-panel">
+      <div class="oblig-header">
+        <h2 id="oblig-title">Pendientes del mes</h2>
+        <div class="oblig-tabs">
+          <div class="oblig-tab active" id="oblig-tab-pend" onclick="showObligaciones('pendientes')">Pendientes</div>
+          <div class="oblig-tab" id="oblig-tab-todas" onclick="showObligaciones('todas')">Todas</div>
+        </div>
+        <button class="oblig-add-btn" onclick="abrirFormObligacion()">+ Nueva obligacion</button>
+      </div>
+      <div class="oblig-content" id="oblig-content">
+        <div class="oblig-empty"><div class="oblig-empty-icon">...</div>Cargando...</div>
+      </div>
+      <div class="oblig-summary" id="oblig-summary">
+        <div class="stat"><div class="stat-label">Pendientes</div><div class="stat-value" id="oblig-stat-pend">0</div></div>
+        <div class="stat"><div class="stat-label">Pagadas</div><div class="stat-value accent" id="oblig-stat-pagadas">0</div></div>
+        <div class="stat"><div class="stat-label">Total estimado mes</div><div class="stat-value" id="oblig-stat-total">$0</div></div>
+        <div class="stat" style="margin-left:auto"><button class="btn btn-ghost" onclick="volverGastos()" style="font-size:11px">Volver a gastos</button></div>
+      </div>
+    </div>
+
     <!-- Stats bar -->
     <div class="stats-bar">
       <div class="stat">
@@ -1008,6 +1292,86 @@
   </div>
 </div>
 
+<!-- Modal Obligacion form -->
+<div class="oblig-overlay" id="oblig-overlay" onclick="if(event.target===this)cerrarFormObligacion()">
+  <div class="oblig-modal">
+    <h3>
+      <span id="oblig-form-title">Nueva obligacion</span>
+      <span class="dian-close" onclick="cerrarFormObligacion()">&#x2715;</span>
+    </h3>
+    <div class="oblig-form" id="oblig-form">
+      <input type="hidden" id="oblig-id" value="">
+      <label class="full">Nombre
+        <input type="text" id="oblig-nombre" placeholder="Ej: Liceo Frances">
+      </label>
+      <label>Tipo
+        <select id="oblig-tipo">
+          <option value="empresa">Empresa (COCICP)</option>
+          <option value="personal">Personal</option>
+        </select>
+      </label>
+      <label>Frecuencia
+        <select id="oblig-frecuencia">
+          <option value="mensual">Mensual</option>
+          <option value="quincenal">Quincenal</option>
+          <option value="bimestral">Bimestral</option>
+          <option value="trimestral">Trimestral</option>
+          <option value="semestral">Semestral</option>
+          <option value="anual">Anual</option>
+        </select>
+      </label>
+      <label>Categoria
+        <select id="oblig-categoria">
+          <option value="">-- Seleccionar --</option>
+          <option>Alimentacion</option>
+          <option>Mercado/Aseo</option>
+          <option>Combustible</option>
+          <option>Educacion hijos</option>
+          <option>Honorarios Medicos</option>
+          <option>Prestadores de servicios</option>
+          <option>Seguridad Social</option>
+          <option>Impuestos vehiculos</option>
+          <option>Gastos Administrativos</option>
+          <option>Transporte Aereo</option>
+          <option>Alojamiento</option>
+          <option>Salud</option>
+          <option>Tecnologia</option>
+          <option>Personal</option>
+          <option>Miscelaneos</option>
+          <option>Vivienda</option>
+          <option>Pagos David Duque</option>
+          <option>Parqueadero</option>
+        </select>
+      </label>
+      <label>Dia limite (1-31)
+        <input type="number" id="oblig-dia" min="1" max="31" placeholder="5">
+      </label>
+      <label>Valor estimado
+        <input type="number" id="oblig-valor" placeholder="0">
+      </label>
+      <label>Proveedor NIT
+        <input type="text" id="oblig-pnit" placeholder="901423905-4">
+      </label>
+      <label>Proveedor nombre
+        <input type="text" id="oblig-pnombre" placeholder="Liceo Frances">
+      </label>
+      <label>Medio de pago
+        <input type="text" id="oblig-medio" placeholder="Transferencia, PSE, TC...">
+      </label>
+      <label class="full">Descripcion
+        <textarea id="oblig-desc" placeholder="Notas adicionales..."></textarea>
+      </label>
+      <label class="full">Notas
+        <textarea id="oblig-notas" placeholder="Notas internas..."></textarea>
+      </label>
+      <div class="oblig-form-actions">
+        <button class="btn btn-ghost" onclick="cerrarFormObligacion()">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarObligacion()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast">
   <span id="toast-icon">✓</span>
@@ -1048,6 +1412,7 @@ document.addEventListener('DOMContentLoaded', () => {
   cargarGastos();
   loadRecurrentes();
   loadEstadoMes();
+  loadObligBadge();
   // Restore auto-confirm checkbox from localStorage
   const chk = document.getElementById('chk-autoconfirm');
   if (chk) chk.checked = localStorage.getItem('autoConfirm') === '1';
@@ -2404,6 +2769,477 @@ const DEMO_DATA = [
   { id:8, numero:47, fecha:'2026-02-17', proveedor_nombre:'Laura Anaya', proveedor_nit:'902029628-0', concepto:'Honorarios dic 2025 - Clínica Santa María', categoria:'Honorarios Médicos', iva:0, inc:0, total:14346520, medio_pago:'transferencia', estado:'confirmado' },
   { id:9, numero:38, fecha:'2026-02-09', proveedor_nombre:'Liceo Francés', proveedor_nit:'901423905-4', concepto:'NC #11358 - PPP 10% feb Pablo GS B', categoria:'Educación hijos', iva:0, inc:0, total:-308566, medio_pago:'credito', estado:'confirmado' },
 ];
+
+// ============================================================
+// Obligaciones — CRUD + Pendientes
+// ============================================================
+let obligVista = 'pendientes';
+let obligData = null;
+let obligTodasData = null;
+
+function showObligaciones(vista) {
+  obligVista = vista || 'pendientes';
+
+  // Hide gastos views, show oblig panel
+  const gastosEls = ['upload-bar','estado-banner','processing-bar','preview-panel','gastos-header','gastos-table','stats-bar'];
+  // Actually we need to hide the gastos table wrapper & show panel
+  document.querySelectorAll('.upload-bar, .estado-banner, .processing-bar, .preview-panel, .gastos-header, .gastos-table, .stats-bar').forEach(el => {
+    if (el) el.style.display = 'none';
+  });
+  // Also hide chart wrapper if exists
+  const chartW = document.querySelector('.chart-section');
+  if (chartW) chartW.style.display = 'none';
+
+  const panel = document.getElementById('oblig-panel');
+  panel.classList.add('show');
+
+  // Update tabs
+  document.getElementById('oblig-tab-pend').classList.toggle('active', obligVista === 'pendientes');
+  document.getElementById('oblig-tab-todas').classList.toggle('active', obligVista === 'todas');
+
+  // Update sidebar active states
+  document.querySelectorAll('nav .nav-item').forEach(i => i.classList.remove('active'));
+  if (obligVista === 'pendientes') {
+    document.getElementById('nav-oblig-pend')?.classList.add('active');
+  }
+
+  document.getElementById('oblig-title').textContent =
+    obligVista === 'pendientes' ? 'Pendientes del mes' : 'Todas las obligaciones';
+
+  if (obligVista === 'pendientes') loadPendientes();
+  else loadObligaciones();
+}
+
+function volverGastos() {
+  document.getElementById('oblig-panel').classList.remove('show');
+  document.querySelectorAll('.upload-bar, .gastos-header, .gastos-table, .stats-bar').forEach(el => {
+    if (el) el.style.display = '';
+  });
+  const chartW = document.querySelector('.chart-section');
+  if (chartW) chartW.style.display = '';
+  const estadoB = document.getElementById('estado-banner');
+  if (estadoB && !estadoB.classList.contains('dismissed')) estadoB.style.display = '';
+  // Restore sidebar active
+  document.querySelectorAll('nav .nav-item').forEach(i => i.classList.remove('active'));
+  document.querySelector('nav .nav-item')?.classList.add('active');
+}
+
+async function loadPendientes() {
+  const content = document.getElementById('oblig-content');
+  content.innerHTML = '<div class="oblig-empty">Cargando pendientes...</div>';
+  try {
+    const res = await fetch(`${WORKER_URL}/api/obligaciones/pendientes`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    obligData = data;
+    renderPendientes(data);
+    // Update badge
+    const badge = document.getElementById('oblig-badge');
+    if (data.total_pendientes > 0) {
+      badge.textContent = data.total_pendientes;
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (err) {
+    content.innerHTML = `<div class="oblig-empty"><div class="oblig-empty-icon">!</div>Error: ${err.message}</div>`;
+  }
+}
+
+async function loadObligaciones() {
+  const content = document.getElementById('oblig-content');
+  content.innerHTML = '<div class="oblig-empty">Cargando obligaciones...</div>';
+  try {
+    const res = await fetch(`${WORKER_URL}/api/obligaciones`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    obligTodasData = data.obligaciones;
+    renderObligaciones(data.obligaciones);
+  } catch (err) {
+    content.innerHTML = `<div class="oblig-empty"><div class="oblig-empty-icon">!</div>Error: ${err.message}</div>`;
+  }
+}
+
+function renderPendientes(data) {
+  const content = document.getElementById('oblig-content');
+  let html = '';
+
+  const hoy = new Date().getDate();
+
+  // Group: empresa pendientes, personal pendientes, pagadas
+  const empPend = data.pendientes.filter(o => o.tipo === 'empresa');
+  const perPend = data.pendientes.filter(o => o.tipo === 'personal');
+
+  if (empPend.length > 0) {
+    html += `<div class="oblig-section-title">Empresa (COCICP) <span class="oblig-count">${empPend.length}</span></div>`;
+    html += empPend.map(o => renderObligCard(o, 'pendiente')).join('');
+  }
+  if (perPend.length > 0) {
+    html += `<div class="oblig-section-title">Personal <span class="oblig-count">${perPend.length}</span></div>`;
+    html += perPend.map(o => renderObligCard(o, 'pendiente')).join('');
+  }
+
+  if (data.pagadas.length > 0) {
+    html += `<div class="oblig-section-title">Pagadas este mes <span class="oblig-count">${data.pagadas.length}</span></div>`;
+    html += data.pagadas.map(o => renderObligCard(o, 'pagado')).join('');
+  }
+
+  if (!html) {
+    html = '<div class="oblig-empty"><div class="oblig-empty-icon">&#x2714;</div>No hay obligaciones pendientes este mes</div>';
+  }
+
+  content.innerHTML = html;
+
+  // Summary
+  const totalEst = [...data.pendientes, ...data.pagadas]
+    .reduce((s, o) => s + (o.valor_estimado || 0), 0);
+  const totalPagado = data.pagadas.reduce((s, o) => s + (o.gasto?.total || o.valor_estimado || 0), 0);
+  document.getElementById('oblig-stat-pend').textContent = data.total_pendientes;
+  document.getElementById('oblig-stat-pagadas').textContent = data.total_pagadas;
+  document.getElementById('oblig-stat-total').textContent = fmt(totalEst);
+}
+
+function renderObligCard(ob, estado) {
+  let colorClass = '';
+  let statusHtml = '';
+  const diaLimite = ob.dia_limite || 0;
+
+  if (estado === 'pagado') {
+    colorClass = 'green';
+    const gastoTotal = ob.gasto ? fmt(ob.gasto.total) : '';
+    statusHtml = `<span class="oblig-card-status pagado">PAGADO ${gastoTotal}</span>`;
+  } else {
+    if (ob.vencido) {
+      colorClass = 'red';
+      statusHtml = `<span class="oblig-card-status vencido">VENCIDO</span>`;
+    } else if (ob.dias_restantes !== null && ob.dias_restantes < 5) {
+      colorClass = 'red';
+      statusHtml = `<span class="oblig-card-status vencido">${ob.dias_restantes} dia(s)</span>`;
+    } else if (ob.dias_restantes !== null && ob.dias_restantes >= 5) {
+      colorClass = 'yellow';
+      statusHtml = `<span class="oblig-card-status proximo">${ob.dias_restantes} dias</span>`;
+    } else {
+      colorClass = 'yellow';
+      statusHtml = `<span class="oblig-card-status proximo">${ob.frecuencia}</span>`;
+    }
+  }
+
+  const valorStr = ob.valor_estimado ? fmt(ob.valor_estimado) : '—';
+  const tipoClass = ob.tipo === 'empresa' ? 'empresa' : 'personal';
+  const tipoLabel = ob.tipo === 'empresa' ? 'COCICP' : 'Personal';
+
+  let actionsHtml = '';
+  if (estado !== 'pagado') {
+    actionsHtml = `
+      <div class="oblig-card-actions">
+        <button class="oblig-btn-sm primary" onclick="event.stopPropagation(); marcarPagado(${ob.id}, '${(ob.proveedor_nombre||'').replace(/'/g,"\\'")}', '${ob.categoria||''}', ${ob.valor_estimado||0}, '${(ob.proveedor_nit||'').replace(/'/g,"\\'")}')">Marcar pagado</button>
+        <button class="oblig-btn-sm" onclick="event.stopPropagation(); abrirFormObligacion(${ob.id})">Editar</button>
+      </div>`;
+  }
+
+  return `
+    <div class="oblig-card ${colorClass}" onclick="abrirFormObligacion(${ob.id})">
+      <div class="oblig-card-main">
+        <div class="oblig-card-top">
+          <span class="oblig-card-name">${ob.nombre}</span>
+          <span class="oblig-tipo-tag ${tipoClass}">${tipoLabel}</span>
+        </div>
+        <div class="oblig-card-meta">
+          ${ob.categoria ? `<span>${ob.categoria}</span>` : ''}
+          ${diaLimite ? `<span>Dia ${diaLimite}</span>` : ''}
+          ${ob.frecuencia ? `<span>${ob.frecuencia}</span>` : ''}
+          ${ob.proveedor_nombre ? `<span>${ob.proveedor_nombre}</span>` : ''}
+        </div>
+        ${actionsHtml}
+      </div>
+      <div class="oblig-card-right">
+        <span class="oblig-card-valor">${valorStr}</span>
+        ${statusHtml}
+      </div>
+    </div>`;
+}
+
+function renderObligaciones(obligs) {
+  const content = document.getElementById('oblig-content');
+  const activas = obligs.filter(o => o.activo === 1);
+  const inactivas = obligs.filter(o => o.activo === 0);
+
+  const emp = activas.filter(o => o.tipo === 'empresa');
+  const per = activas.filter(o => o.tipo === 'personal');
+
+  let html = '';
+  if (emp.length > 0) {
+    html += `<div class="oblig-section-title">Empresa (COCICP) <span class="oblig-count">${emp.length}</span></div>`;
+    html += emp.map(o => renderObligCardTodas(o)).join('');
+  }
+  if (per.length > 0) {
+    html += `<div class="oblig-section-title">Personal <span class="oblig-count">${per.length}</span></div>`;
+    html += per.map(o => renderObligCardTodas(o)).join('');
+  }
+  if (inactivas.length > 0) {
+    html += `<div class="oblig-section-title" style="opacity:0.5">Inactivas <span class="oblig-count">${inactivas.length}</span></div>`;
+    html += inactivas.map(o => renderObligCardTodas(o, true)).join('');
+  }
+  if (!html) {
+    html = '<div class="oblig-empty"><div class="oblig-empty-icon">&#x25C7;</div>No hay obligaciones registradas</div>';
+  }
+  content.innerHTML = html;
+
+  // Summary for "todas"
+  const totalEst = activas.reduce((s, o) => s + (o.valor_estimado || 0), 0);
+  document.getElementById('oblig-stat-pend').textContent = activas.length;
+  document.getElementById('oblig-stat-pagadas').textContent = inactivas.length;
+  document.getElementById('oblig-stat-total').textContent = fmt(totalEst);
+}
+
+function renderObligCardTodas(ob, inactive) {
+  const valorStr = ob.valor_estimado ? fmt(ob.valor_estimado) : '—';
+  const tipoClass = ob.tipo === 'empresa' ? 'empresa' : 'personal';
+  const tipoLabel = ob.tipo === 'empresa' ? 'COCICP' : 'Personal';
+
+  return `
+    <div class="oblig-card ${inactive ? '' : 'yellow'}" style="${inactive ? 'opacity:0.5' : ''}" onclick="abrirFormObligacion(${ob.id})">
+      <div class="oblig-card-main">
+        <div class="oblig-card-top">
+          <span class="oblig-card-name">${ob.nombre}</span>
+          <span class="oblig-tipo-tag ${tipoClass}">${tipoLabel}</span>
+        </div>
+        <div class="oblig-card-meta">
+          ${ob.categoria ? `<span>${ob.categoria}</span>` : ''}
+          ${ob.dia_limite ? `<span>Dia ${ob.dia_limite}</span>` : ''}
+          <span>${ob.frecuencia}</span>
+          ${ob.proveedor_nombre ? `<span>${ob.proveedor_nombre}</span>` : ''}
+          ${ob.medio_pago ? `<span>${ob.medio_pago}</span>` : ''}
+        </div>
+        <div class="oblig-card-actions">
+          <button class="oblig-btn-sm" onclick="event.stopPropagation(); abrirFormObligacion(${ob.id})">Editar</button>
+          ${ob.activo ? `<button class="oblig-btn-sm" onclick="event.stopPropagation(); eliminarObligacion(${ob.id})" style="color:var(--warn)">Desactivar</button>` : `<button class="oblig-btn-sm" onclick="event.stopPropagation(); reactivarObligacion(${ob.id})">Reactivar</button>`}
+        </div>
+      </div>
+      <div class="oblig-card-right">
+        <span class="oblig-card-valor">${valorStr}</span>
+        ${inactive ? '<span class="oblig-card-status inactivo">INACTIVA</span>' : `<span class="oblig-card-status proximo">${ob.frecuencia}</span>`}
+      </div>
+    </div>`;
+}
+
+// ── Form: abrir / cerrar / guardar ──
+async function abrirFormObligacion(id) {
+  const overlay = document.getElementById('oblig-overlay');
+  const title = document.getElementById('oblig-form-title');
+
+  // Reset form
+  document.getElementById('oblig-id').value = '';
+  document.getElementById('oblig-nombre').value = '';
+  document.getElementById('oblig-tipo').value = 'empresa';
+  document.getElementById('oblig-frecuencia').value = 'mensual';
+  document.getElementById('oblig-categoria').value = '';
+  document.getElementById('oblig-dia').value = '';
+  document.getElementById('oblig-valor').value = '';
+  document.getElementById('oblig-pnit').value = '';
+  document.getElementById('oblig-pnombre').value = '';
+  document.getElementById('oblig-medio').value = '';
+  document.getElementById('oblig-desc').value = '';
+  document.getElementById('oblig-notas').value = '';
+
+  if (id) {
+    title.textContent = 'Editar obligacion';
+    // Fetch data
+    try {
+      const res = await fetch(`${WORKER_URL}/api/obligaciones`);
+      const data = await res.json();
+      const ob = (data.obligaciones || []).find(o => o.id === id);
+      if (ob) {
+        document.getElementById('oblig-id').value = ob.id;
+        document.getElementById('oblig-nombre').value = ob.nombre || '';
+        document.getElementById('oblig-tipo').value = ob.tipo || 'empresa';
+        document.getElementById('oblig-frecuencia').value = ob.frecuencia || 'mensual';
+        document.getElementById('oblig-categoria').value = ob.categoria || '';
+        document.getElementById('oblig-dia').value = ob.dia_limite || '';
+        document.getElementById('oblig-valor').value = ob.valor_estimado || '';
+        document.getElementById('oblig-pnit').value = ob.proveedor_nit || '';
+        document.getElementById('oblig-pnombre').value = ob.proveedor_nombre || '';
+        document.getElementById('oblig-medio').value = ob.medio_pago || '';
+        document.getElementById('oblig-desc').value = ob.descripcion || '';
+        document.getElementById('oblig-notas').value = ob.notas || '';
+      }
+    } catch (err) {
+      console.error('Error loading obligacion:', err);
+    }
+  } else {
+    title.textContent = 'Nueva obligacion';
+  }
+
+  overlay.classList.add('show');
+}
+
+function cerrarFormObligacion() {
+  document.getElementById('oblig-overlay').classList.remove('show');
+}
+
+async function guardarObligacion() {
+  const id = document.getElementById('oblig-id').value;
+  const body = {
+    nombre:           document.getElementById('oblig-nombre').value.trim(),
+    tipo:             document.getElementById('oblig-tipo').value,
+    frecuencia:       document.getElementById('oblig-frecuencia').value,
+    categoria:        document.getElementById('oblig-categoria').value || null,
+    dia_limite:       parseInt(document.getElementById('oblig-dia').value) || null,
+    valor_estimado:   parseFloat(document.getElementById('oblig-valor').value) || null,
+    proveedor_nit:    document.getElementById('oblig-pnit').value.trim() || null,
+    proveedor_nombre: document.getElementById('oblig-pnombre').value.trim() || null,
+    medio_pago:       document.getElementById('oblig-medio').value.trim() || null,
+    descripcion:      document.getElementById('oblig-desc').value.trim() || null,
+    notas:            document.getElementById('oblig-notas').value.trim() || null,
+  };
+
+  if (!body.nombre) { showToast('Nombre es requerido', 'err'); return; }
+
+  try {
+    const url = id ? `${WORKER_URL}/api/obligaciones/${id}` : `${WORKER_URL}/api/obligaciones`;
+    const method = id ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    cerrarFormObligacion();
+    showToast(id ? 'Obligacion actualizada' : 'Obligacion creada');
+    if (obligVista === 'pendientes') loadPendientes();
+    else loadObligaciones();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'err');
+  }
+}
+
+async function eliminarObligacion(id) {
+  if (!confirm('Desactivar esta obligacion?')) return;
+  try {
+    const res = await fetch(`${WORKER_URL}/api/obligaciones/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    showToast('Obligacion desactivada');
+    if (obligVista === 'pendientes') loadPendientes();
+    else loadObligaciones();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'err');
+  }
+}
+
+async function reactivarObligacion(id) {
+  try {
+    const res = await fetch(`${WORKER_URL}/api/obligaciones/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activo: 1 })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    showToast('Obligacion reactivada');
+    loadObligaciones();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'err');
+  }
+}
+
+// ── Marcar pagado: pre-fill upload data for the obligation ──
+function marcarPagado(obligId, provNombre, categoria, valorEst, provNit) {
+  // Switch back to gastos view
+  volverGastos();
+
+  // Pre-fill the preview panel as if we had an upload result
+  const pp = document.getElementById('preview-panel');
+  pp.classList.add('show');
+
+  // Hide the viewer section since there's no file
+  const viewer = document.getElementById('prev-viewer');
+  if (viewer) viewer.style.display = 'none';
+  pp.classList.remove('has-viewer');
+
+  // Set today's date
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('prev-fecha').value = today;
+  document.getElementById('prev-proveedor').value = provNombre || '';
+  document.getElementById('prev-nit').value = provNit || '';
+  document.getElementById('prev-concepto').value = '';
+  document.getElementById('prev-numdoc').value = '';
+  document.getElementById('prev-medio').value = '';
+  document.getElementById('prev-ref').value = '';
+
+  // Set total
+  const totalEl = document.getElementById('prev-total');
+  if (valorEst) {
+    totalEl.textContent = fmt(valorEst);
+    totalEl.classList.remove('neg');
+  } else {
+    totalEl.textContent = '$0';
+  }
+
+  // Set categoria
+  const catSel = document.getElementById('prev-categoria');
+  if (categoria) {
+    for (let i = 0; i < catSel.options.length; i++) {
+      if (catSel.options[i].value === categoria || catSel.options[i].text === categoria) {
+        catSel.selectedIndex = i;
+        break;
+      }
+    }
+  }
+
+  // Build previewData
+  previewData = {
+    proveedor_nombre: provNombre,
+    proveedor_nit: provNit,
+    categoria: categoria,
+    total: valorEst || 0,
+    valor_base: valorEst || 0,
+    iva: 0, inc: 0, otros_impuestos: 0,
+    fecha: today,
+    concepto: '',
+    numero_documento: '',
+    medio_pago: '',
+    referencia_pago: '',
+    es_nota_credito: false,
+    usuario: usuario,
+    estado: 'confirmado',
+    archivo_r2: null,
+    _from_obligacion: obligId
+  };
+
+  // Set header/badge
+  document.getElementById('prev-titulo').textContent = provNombre || 'Registrar pago';
+  const badge = document.getElementById('prev-badge');
+  badge.textContent = 'OBLIGACION';
+  badge.className = 'badge badge-ok';
+
+  document.getElementById('prev-confianza').textContent = '';
+  document.getElementById('btn-delete').style.display = 'none';
+  document.getElementById('btn-confirm').textContent = 'Confirmar y guardar';
+
+  const soporteWrap = document.getElementById('prev-soporte-wrap');
+  if (soporteWrap) soporteWrap.style.display = 'none';
+
+  showToast('Completa los datos y confirma el pago');
+}
+
+// Load pending count on init for the sidebar badge
+async function loadObligBadge() {
+  try {
+    const res = await fetch(`${WORKER_URL}/api/obligaciones/pendientes`);
+    const data = await res.json();
+    if (data.ok) {
+      const badge = document.getElementById('oblig-badge');
+      if (data.total_pendientes > 0) {
+        badge.textContent = data.total_pendientes;
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  } catch (e) { /* silent */ }
+}
 </script>
 
 <script>
