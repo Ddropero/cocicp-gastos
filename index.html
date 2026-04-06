@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>COCICP · Gastos</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d0f0e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
 <style>
@@ -116,6 +120,24 @@
     flex-shrink: 0;
   }
   .nav-item.active .nav-dot { opacity: 1; }
+
+  /* ── Recurrentes warning ── */
+  .rec-ok {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; font-size: 11px; color: var(--muted);
+  }
+  .rec-ok .rec-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .rec-warn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; font-size: 11px; color: var(--warn);
+    cursor: default;
+  }
+  .rec-warn .rec-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex-shrink: 0; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .rec-summary {
+    padding: 4px 8px; font-size: 10px; color: var(--muted);
+    border-top: 1px solid var(--border); margin-top: 4px;
+  }
 
   /* ── Main content ── */
   main {
@@ -418,6 +440,257 @@
   .empty-icon { font-size: 32px; opacity: 0.3; }
   .empty-text { font-family: var(--serif); font-size: 16px; font-weight: 300; }
 
+  /* ── Document Viewer (side-by-side) ── */
+  .preview-panel.has-viewer .preview-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+
+  .preview-viewer {
+    background: #0a0c0b;
+    border-right: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 420px;
+    max-height: 70vh;
+    overflow: hidden;
+    padding: 8px;
+  }
+
+  .preview-viewer img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+  }
+
+  .preview-viewer iframe {
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+    border: none;
+    border-radius: 4px;
+    background: #1a1c1b;
+  }
+
+  .preview-fields-col {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    align-content: start;
+  }
+
+  .preview-fields-col .preview-field.wide  { grid-column: span 2; }
+  .preview-fields-col .preview-field.full   { grid-column: 1/-1; }
+
+  /* When NO viewer (no archivo_r2), preview-body keeps its original layout */
+  .preview-panel:not(.has-viewer) .preview-fields-col {
+    grid-column: 1/-1;
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  /* ── Mobile: stack vertically ── */
+  @media (max-width: 768px) {
+    .preview-panel.has-viewer .preview-body {
+      grid-template-columns: 1fr;
+    }
+
+    .preview-viewer {
+      min-height: 280px;
+      max-height: 50vh;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .preview-fields-col {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  /* ── Chart Section ── */
+  .chart-section {
+    margin: 0 0 16px 0;
+  }
+
+  .btn-tendencias {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+    text-align: left;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-tendencias:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .btn-icon {
+    font-size: 10px;
+    transition: transform 0.2s ease;
+  }
+
+  .chart-container {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    padding: 16px;
+    height: 300px;
+    position: relative;
+    overflow: hidden;
+    transition: height 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+  }
+
+  .chart-section.collapsed .chart-container {
+    height: 0;
+    padding: 0 16px;
+    opacity: 0;
+    border: none;
+    overflow: hidden;
+  }
+
+  .chart-section:not(.collapsed) .btn-tendencias {
+    border-radius: 6px 6px 0 0;
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .chart-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  #tendencias-canvas {
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  /* ── Comparativo modal (reutiliza patron .dian-*) ── */
+  #comp-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:150;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto}
+  #comp-overlay.show{display:flex}
+  .comp-controls{display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap}
+  .comp-field{display:flex;flex-direction:column;gap:4px}
+  .comp-field label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .comp-field input[type="month"]{
+    background:var(--bg);border:1px solid var(--border);border-radius:4px;
+    padding:6px 10px;color:var(--text);font-family:var(--mono);font-size:12px;
+    cursor:pointer
+  }
+  .comp-field input[type="month"]:focus{outline:none;border-color:var(--accent)}
+  .comp-field input[type="month"]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.5;cursor:pointer}
+  .comp-result-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
+  .comp-result-table th{text-align:left;padding:8px;color:var(--muted);font-weight:400;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+  .comp-result-table th:not(:first-child){text-align:right}
+  .comp-result-table td{padding:8px;border-bottom:1px solid var(--border)}
+  .comp-result-table td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+  .comp-result-table tr:hover{background:var(--bg)}
+  .comp-result-table tr.comp-total-row{border-top:2px solid var(--border);font-weight:500}
+  .comp-result-table tr.comp-total-row td{padding-top:12px}
+  .comp-up{color:#f0a0a0}
+  .comp-down{color:var(--accent)}
+  .comp-neutral{color:var(--muted)}
+  .comp-pct{font-size:10px;margin-left:4px;opacity:.7}
+  .comp-arrow{font-size:9px;margin-right:2px}
+  .comp-summary{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+  .comp-empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:12px}
+
+  /* ── Estado mes banner ── */
+  .estado-banner {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    transition: all 0.3s ease;
+    position: relative;
+  }
+  .estado-banner.hidden { display: none; }
+  .estado-banner.green {
+    background: #0d1a0d;
+    border-left: 3px solid var(--accent);
+  }
+  .estado-banner.yellow {
+    background: #1a1a0d;
+    border-left: 3px solid var(--accent2);
+  }
+  .estado-banner.red {
+    background: #1a0d0d;
+    border-left: 3px solid var(--warn);
+  }
+  .estado-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .estado-resumen {
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+  .estado-resumen strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .estado-alertas {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+  .estado-alerta {
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .estado-alerta.yellow {
+    background: rgba(240, 224, 160, 0.12);
+    color: var(--accent2);
+    border: 1px solid rgba(240, 224, 160, 0.2);
+  }
+  .estado-alerta.red {
+    background: rgba(240, 176, 160, 0.12);
+    color: var(--warn);
+    border: 1px solid rgba(240, 176, 160, 0.2);
+  }
+  .estado-alerta.green {
+    background: rgba(184, 240, 160, 0.08);
+    color: var(--accent);
+    border: 1px solid rgba(184, 240, 160, 0.15);
+  }
+  .estado-dismiss {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .estado-dismiss:hover {
+    color: var(--text);
+    background: var(--border);
+  }
+
   /* ── Scrollbar ── */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -458,9 +731,36 @@
       <input type="file" id="dian-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="procesarDIAN(this.files[0])">
     </div>
     <div class="nav-section">
+      <div class="nav-label">Banco</div>
+      <div class="nav-item" onclick="document.getElementById('banco-file').click()" style="color:var(--accent2)">
+        <div class="nav-dot" style="background:var(--accent2)"></div> Cruce Bancario
+      </div>
+      <input type="file" id="banco-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="procesarBanco(this.files[0])">
+    </div>
+    <div class="nav-section" id="recurrentes-section" style="display:none">
+      <div class="nav-label">Recurrentes</div>
+      <div id="recurrentes-warn"></div>
+    </div>
+    <div class="nav-section">
       <div class="nav-label">Exportar</div>
+      <div class="nav-item" onclick="exportarPDF()" style="color:var(--accent)"><div class="nav-dot"></div> PDF Fiscal</div>
       <div class="nav-item" onclick="exportarExcel()"><div class="nav-dot"></div> Excel</div>
       <div class="nav-item" onclick="exportarCSV()"><div class="nav-dot"></div> CSV</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Analisis</div>
+      <div class="nav-item" onclick="abrirComparativo()" style="color:var(--accent2)">
+        <div class="nav-dot" style="background:var(--accent2)"></div> Comparativo
+      </div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Opciones</div>
+      <label class="nav-item" style="cursor:pointer;gap:8px;">
+        <input type="checkbox" id="chk-autoconfirm"
+          onchange="localStorage.setItem('autoConfirm', this.checked ? '1' : '0')"
+          style="accent-color:var(--accent);width:14px;height:14px;">
+        Auto-confirmar conocidos
+      </label>
     </div>
   </nav>
 
@@ -483,6 +783,14 @@
       </button>
     </div>
 
+    <!-- Estado mes DIAN banner -->
+    <div class="estado-banner hidden" id="estado-banner">
+      <span class="estado-icon" id="estado-icon"></span>
+      <span class="estado-resumen" id="estado-resumen"></span>
+      <div class="estado-alertas" id="estado-alertas"></div>
+      <button class="estado-dismiss" id="estado-dismiss" title="Ocultar este mes">&times;</button>
+    </div>
+
     <!-- Processing bar (multi-archivo) -->
     <div class="processing-bar" id="processing-bar">
       <span style="font-size:11px;color:var(--muted);">Procesando</span>
@@ -498,6 +806,11 @@
         <span style="margin-left:auto;font-size:11px;color:var(--muted)" id="prev-confianza"></span>
       </div>
       <div class="preview-body">
+        <div class="preview-viewer" id="prev-viewer" style="display:none">
+          <img id="prev-viewer-img" style="display:none" alt="Soporte">
+          <iframe id="prev-viewer-pdf" style="display:none"></iframe>
+        </div>
+        <div class="preview-fields-col">
         <div class="preview-field">
           <div class="field-label">Total</div>
           <div class="field-value big" id="prev-total">—</div>
@@ -562,7 +875,8 @@
             📎 Ver documento
           </a>
         </div>
-      </div>
+      </div>  <!-- closes preview-fields-col -->
+      </div>  <!-- closes preview-body -->
       <div class="preview-footer">
         <button class="btn btn-ghost" onclick="cancelarPreview()">Descartar</button>
         <button class="btn btn-danger" id="btn-delete" onclick="borrarGasto()" style="display:none;background:#3a1a1a;color:var(--warn);border:1px solid #5a2a2a;">
@@ -653,6 +967,47 @@
   </div>
 </div>
 
+<!-- Modal cruce Bancario -->
+<div class="dian-overlay" id="banco-overlay" onclick="if(event.target===this)cerrarBanco()">
+  <div class="dian-modal" style="max-width:1050px">
+    <div class="dian-header">
+      <h2>Cruce Bancario</h2>
+      <span id="banco-loading" style="font-size:11px;color:var(--muted);display:none">Procesando extracto...</span>
+      <span class="dian-close" onclick="cerrarBanco()">&#x2715;</span>
+    </div>
+    <div class="dian-stats" id="banco-stats"></div>
+    <div id="banco-results"></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-ghost" onclick="exportarCruceBanco()" style="font-size:11px">Exportar Excel</button>
+      <button class="btn btn-ghost" onclick="cerrarBanco()" style="font-size:11px;margin-left:auto">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Comparativo mensual -->
+<div id="comp-overlay" onclick="if(event.target===this)cerrarComparativo()">
+  <div class="dian-modal">
+    <div class="dian-header">
+      <h2>Comparativo mensual</h2>
+      <span id="comp-loading" style="font-size:11px;color:var(--muted);display:none">Consultando...</span>
+      <span class="dian-close" onclick="cerrarComparativo()">&#10005;</span>
+    </div>
+    <div class="comp-controls">
+      <div class="comp-field">
+        <label>Mes 1</label>
+        <input type="month" id="comp-mes1" value="2026-03">
+      </div>
+      <div class="comp-field">
+        <label>Mes 2</label>
+        <input type="month" id="comp-mes2" value="2026-04">
+      </div>
+      <button class="btn btn-primary" onclick="ejecutarComparativo()">Comparar</button>
+    </div>
+    <div class="dian-stats comp-summary" id="comp-summary"></div>
+    <div id="comp-results"></div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast">
   <span id="toast-icon">✓</span>
@@ -691,6 +1046,11 @@ const fmtFecha = s => s ? s.slice(0,10) : '—';
 document.addEventListener('DOMContentLoaded', () => {
   setupDrop();
   cargarGastos();
+  loadRecurrentes();
+  loadEstadoMes();
+  // Restore auto-confirm checkbox from localStorage
+  const chk = document.getElementById('chk-autoconfirm');
+  if (chk) chk.checked = localStorage.getItem('autoConfirm') === '1';
 });
 
 // ============================================================
@@ -738,6 +1098,9 @@ async function handleFiles(files) {
   let done = 0;
   let errors = 0;
   let duplicados = 0;
+  let autoConfirmados = 0;
+
+  const autoConfirmOn = document.getElementById('chk-autoconfirm')?.checked;
 
   // Procesar todos en paralelo
   const promises = fileList.map(async (file, i) => {
@@ -746,6 +1109,7 @@ async function handleFiles(files) {
       const form = new FormData();
       form.append('file', file);
       form.append('usuario', usuario);
+      if (autoConfirmOn) form.append('auto_confirm', '1');
 
       const res  = await fetch(`${WORKER_URL}/api/upload`, { method: 'POST', body: form });
       const data = await res.json();
@@ -758,22 +1122,27 @@ async function handleFiles(files) {
         if (data.preview.es_posible_duplicado) {
           duplicados++;
           pills[i].className = 'agent-pill error';
-          pills[i].innerHTML = `⊘ ${shortName} (duplicado)`;
+          pills[i].innerHTML = `&#x2298; ${shortName} (duplicado)`;
+        } else if (data.auto_confirmado) {
+          // Auto-confirmed by worker — don't add to preview queue
+          autoConfirmados++;
+          pills[i].className = 'agent-pill done';
+          pills[i].innerHTML = `&#x2713; auto #${data.numero} ${shortName}`;
         } else {
           pills[i].className = 'agent-pill done';
-          pills[i].innerHTML = `✓ ${shortName}`;
+          pills[i].innerHTML = `&#x2713; ${shortName}`;
           previewQueue.push(data.preview);
         }
       } else {
         pills[i].className = 'agent-pill error';
-        pills[i].innerHTML = `✕ ${shortName}`;
+        pills[i].innerHTML = `&#x2715; ${shortName}`;
         errors++;
       }
     } catch (err) {
       done++;
       errors++;
       pills[i].className = 'agent-pill error';
-      pills[i].innerHTML = `✕ ${shortName}`;
+      pills[i].innerHTML = `&#x2715; ${shortName}`;
     }
   });
 
@@ -782,13 +1151,17 @@ async function handleFiles(files) {
   // Resumen
   const nuevos = previewQueue.length;
   const partes = [];
-  if (nuevos > 0) partes.push(`${nuevos} nuevo${nuevos > 1 ? 's' : ''}`);
-  if (duplicados > 0) partes.push(`${duplicados} duplicado${duplicados > 1 ? 's' : ''} descartado${duplicados > 1 ? 's' : ''}`);
+  if (autoConfirmados > 0) partes.push(`${autoConfirmados} auto`);
+  if (nuevos > 0) partes.push(`${nuevos} para revisar`);
+  if (duplicados > 0) partes.push(`${duplicados} duplicado${duplicados > 1 ? 's' : ''}`);
   if (errors > 0) partes.push(`${errors} con error`);
-  showToast(partes.join(' · ') || 'Sin archivos procesados', nuevos > 0 ? 'ok' : 'err');
+  showToast(partes.join(' · ') || 'Sin archivos procesados', (autoConfirmados + nuevos) > 0 ? 'ok' : 'err');
 
   // Ocultar barra después de 1.5s
   setTimeout(() => bar.classList.remove('show'), 1500);
+
+  // Reload table if any were auto-confirmed
+  if (autoConfirmados > 0) cargarGastos();
 
   // Mostrar primer preview de la cola
   showNextPreview();
@@ -804,8 +1177,44 @@ function showNextPreview() {
 // ============================================================
 // Preview card
 // ============================================================
+function updateDocViewer(archivoR2) {
+  const panel   = document.getElementById('preview-panel');
+  const viewer  = document.getElementById('prev-viewer');
+  const img     = document.getElementById('prev-viewer-img');
+  const pdf     = document.getElementById('prev-viewer-pdf');
+
+  // Reset
+  img.style.display = 'none';
+  pdf.style.display = 'none';
+  img.src = '';
+  pdf.src = '';
+
+  if (!archivoR2) {
+    viewer.style.display = 'none';
+    panel.classList.remove('has-viewer');
+    return;
+  }
+
+  const src = `${WORKER_URL}/api/soporte/${archivoR2}`;
+  const ext = archivoR2.split('.').pop().toLowerCase();
+  const isImage = ['jpg','jpeg','png','gif','webp','bmp','tiff','tif'].includes(ext);
+
+  viewer.style.display = 'flex';
+  panel.classList.add('has-viewer');
+
+  if (isImage) {
+    img.src = src;
+    img.style.display = 'block';
+  } else {
+    // PDF or other document — use iframe
+    pdf.src = src;
+    pdf.style.display = 'block';
+  }
+}
+
 function showPreview(p) {
   previewData = p;
+  updateDocViewer(p.archivo_r2 || null);
 
   const isNeg = p.total < 0;
   const totalEl = document.getElementById('prev-total');
@@ -881,6 +1290,7 @@ function showPreview(p) {
 
 function cancelarPreview() {
   document.getElementById('preview-panel').classList.remove('show');
+  updateDocViewer(null);
   previewData = null;
   // Si hay más en la cola, mostrar el siguiente
   if (previewQueue.length > 0) {
@@ -1152,6 +1562,35 @@ function exportarCSV() {
 }
 
 function exportarExcel() { showToast('Usa el CSV e impórtalo en Excel', 'ok'); }
+
+function exportarPDF() {
+  const now = new Date();
+  let desde, hasta;
+  if (periodo === 'mes') {
+    desde = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    hasta = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-31`;
+  } else if (periodo === '2026') {
+    desde = '2026-01-01'; hasta = '2026-12-31';
+  } else {
+    desde = '2024-01-01'; hasta = '2030-12-31';
+  }
+  showToast('Generando reporte PDF...', 'ok');
+  fetch(`${WORKER_URL}/api/reporte?desde=${desde}&hasta=${hasta}`)
+    .then(res => {
+      if (!res.ok) throw new Error('Error generando reporte');
+      return res.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href     = url;
+      a.download = `COCICP_Reporte_${desde}_${hasta}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Reporte PDF descargado', 'ok');
+    })
+    .catch(err => showToast('Error: ' + err.message, 'err'));
+}
 
 // ============================================================
 // Cruce DIAN
@@ -1460,6 +1899,498 @@ function showToast(msg, type = 'ok') {
 }
 
 // ============================================================
+// Cruce Bancario
+// ============================================================
+
+async function procesarBanco(file) {
+  if (!file) return;
+  document.getElementById('banco-file').value = '';
+
+  try {
+    await loadSheetJS();
+  } catch {
+    showToast('Error cargando libreria Excel', 'err');
+    return;
+  }
+
+  const overlay = document.getElementById('banco-overlay');
+  overlay.classList.add('show');
+  document.getElementById('banco-loading').style.display = 'inline';
+  document.getElementById('banco-stats').innerHTML = '';
+  document.getElementById('banco-results').innerHTML = '';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+    if (!rows.length) {
+      showToast('Excel vacio', 'err');
+      cerrarBanco();
+      return;
+    }
+
+    // Map bank statement columns to our format
+    const movimientos = rows.map(r => {
+      const keys = Object.keys(r);
+      const debito = parseNum(findCol(r, keys, ['debito', 'debito', 'debitos', 'debitos', 'cargo', 'cargos', 'valor debito', 'monto debito']));
+      const credito = parseNum(findCol(r, keys, ['credito', 'credito', 'creditos', 'creditos', 'abono', 'abonos', 'valor credito', 'monto credito']));
+      let valor = parseNum(findCol(r, keys, ['valor', 'monto', 'importe', 'total', 'valor transaccion', 'valor movimiento']));
+
+      // If there are separate debit/credit columns, use debit (expenses)
+      if (!valor && (debito || credito)) {
+        valor = debito || -credito;
+      }
+
+      return {
+        fecha: parseDate(findCol(r, keys, ['fecha', 'fecha movimiento', 'fecha transaccion', 'fecha operacion', 'date'])),
+        descripcion: findCol(r, keys, ['descripcion', 'descripcion', 'concepto', 'detalle', 'referencia', 'movimiento', 'description', 'observacion', 'observacion']) || '',
+        valor: Math.abs(valor),
+        referencia: String(findCol(r, keys, ['referencia', 'ref', 'numero referencia', 'no. referencia', 'cus', 'numero aprobacion', 'no aprobacion', 'comprobante', 'numero comprobante', 'doc', 'numero documento']) || '').trim(),
+        tipo: debito ? 'debito' : credito ? 'credito' : (valor >= 0 ? 'debito' : 'credito'),
+        _raw: r
+      };
+    }).filter(m => m.valor > 0 && m.fecha);
+
+    if (!movimientos.length) {
+      document.getElementById('banco-results').innerHTML = '<p style="color:var(--warn)">No se encontraron movimientos validos. Verifica que el Excel tiene columnas como Fecha, Valor/Debito/Credito, Descripcion, etc.</p>';
+      document.getElementById('banco-loading').style.display = 'none';
+      return;
+    }
+
+    // Send to Worker
+    const res = await fetch(`${WORKER_URL}/api/cruce-banco`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movimientos })
+    });
+    const data = await res.json();
+
+    document.getElementById('banco-loading').style.display = 'none';
+
+    if (!data.ok) {
+      document.getElementById('banco-results').innerHTML = `<p style="color:var(--warn)">Error: ${data.error}</p>`;
+      return;
+    }
+
+    renderBancoResults(data);
+
+  } catch (err) {
+    document.getElementById('banco-loading').style.display = 'none';
+    document.getElementById('banco-results').innerHTML = `<p style="color:var(--warn)">Error: ${err.message}</p>`;
+  }
+}
+
+function renderBancoResults(data) {
+  // Stats
+  document.getElementById('banco-stats').innerHTML = `
+    <div class="dian-stat"><div class="ds-label">Movimientos Banco</div><div class="ds-value">${data.total_movimientos}</div></div>
+    <div class="dian-stat"><div class="ds-label">Conciliados</div><div class="ds-value green">${data.total_conciliados}</div></div>
+    <div class="dian-stat"><div class="ds-label">Sin soporte</div><div class="ds-value yellow">${data.total_sin_soporte}</div></div>
+    <div class="dian-stat"><div class="ds-label">Solo en sistema</div><div class="ds-value blue">${data.total_solo_en_sistema}</div></div>
+  `;
+
+  // Calculate totals for summary
+  const totalConciliado = data.conciliados.reduce((s, c) => s + Math.abs(c.movimiento.valor), 0);
+  const totalSinSoporte = data.sin_soporte.reduce((s, m) => s + Math.abs(m.valor), 0);
+  const totalSoloSistema = data.solo_en_sistema.reduce((s, g) => s + Math.abs(g.total), 0);
+
+  let html = '';
+
+  // Summary bar
+  html += `<div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;font-size:11px;color:var(--muted)">
+    <span>Conciliado: <strong style="color:var(--accent)">${fmt(totalConciliado)}</strong></span>
+    <span>Sin soporte: <strong style="color:var(--accent2)">${fmt(totalSinSoporte)}</strong></span>
+    <span>Solo sistema: <strong style="color:#a0d0f0">${fmt(totalSoloSistema)}</strong></span>
+    <span>Diferencia: <strong style="color:var(--warn)">${fmt(totalSinSoporte - totalSoloSistema)}</strong></span>
+  </div>`;
+
+  // Section 1: Conciliados (green)
+  if (data.conciliados.length) {
+    html += `<div class="dian-section"><h3 style="color:var(--accent)">Conciliados <span>${data.conciliados.length}</span></h3>
+    <table class="dian-table"><thead><tr>
+      <th>Fecha Banco</th><th>Descripcion</th><th>Valor Banco</th><th>#</th><th>Proveedor</th><th>Total Sistema</th><th>Match</th>
+    </tr></thead><tbody>`;
+    data.conciliados.forEach(c => {
+      const m = c.movimiento;
+      const g = c.gasto;
+      const diff = Math.abs(m.valor) - Math.abs(g.total);
+      const diffStr = Math.abs(diff) > 1 ? ` <span style="color:var(--warn);font-size:9px">(dif: ${fmt(diff)})</span>` : '';
+      const matchLabel = {
+        referencia: 'REF',
+        referencia_parcial: 'REF~',
+        fecha_total: 'F+$',
+        fecha_aprox_total: 'F~+$'
+      }[c.metodo_match] || c.metodo_match;
+
+      html += `<tr>
+        <td>${m.fecha||'—'}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion||'—'}</td>
+        <td style="text-align:right">${fmt(m.valor)}</td>
+        <td class="num">${g.numero}</td>
+        <td>${g.proveedor_nombre}</td>
+        <td style="text-align:right">${fmt(g.total)}${diffStr}</td>
+        <td><span style="background:var(--border);padding:1px 6px;border-radius:8px;font-size:9px;color:var(--accent)">${matchLabel}</span></td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Section 2: Sin soporte (yellow)
+  if (data.sin_soporte.length) {
+    html += `<div class="dian-section"><h3 style="color:var(--accent2)">Sin soporte en sistema <span>${data.sin_soporte.length}</span></h3>
+    <table class="dian-table"><thead><tr>
+      <th>Fecha</th><th>Descripcion</th><th>Valor</th><th>Referencia</th>
+    </tr></thead><tbody>`;
+    data.sin_soporte.forEach(m => {
+      html += `<tr style="background:rgba(240,224,160,.04)">
+        <td>${m.fecha||'—'}</td>
+        <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion||'—'}</td>
+        <td style="text-align:right;color:var(--accent2)">${fmt(m.valor)}</td>
+        <td style="font-size:10px">${m.referencia||'—'}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Section 3: Solo en sistema (blue)
+  if (data.solo_en_sistema.length) {
+    html += `<div class="dian-section"><h3 style="color:#a0d0f0">Solo en sistema <span>${data.solo_en_sistema.length}</span></h3>
+    <table class="dian-table"><thead><tr>
+      <th>#</th><th>Proveedor</th><th>Concepto</th><th>Fecha</th><th>Total</th><th>Estado</th>
+    </tr></thead><tbody>`;
+    data.solo_en_sistema.forEach(g => {
+      html += `<tr style="background:rgba(160,208,240,.04)">
+        <td class="num">${g.numero}</td>
+        <td>${g.proveedor_nombre}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.concepto}">${g.concepto||'—'}</td>
+        <td>${g.fecha||'—'}</td>
+        <td style="text-align:right;color:#a0d0f0">${fmt(g.total)}</td>
+        <td style="font-size:10px">${g.estado}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Empty state
+  if (!data.conciliados.length && !data.sin_soporte.length && !data.solo_en_sistema.length) {
+    html += '<p style="color:var(--muted);text-align:center;padding:40px 0">No se encontraron movimientos para conciliar en el rango de fechas.</p>';
+  }
+
+  document.getElementById('banco-results').innerHTML = html;
+}
+
+function exportarCruceBanco() {
+  const rows = [];
+  const tables = document.querySelectorAll('#banco-results .dian-table');
+  tables.forEach(table => {
+    const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent.trim());
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const row = {};
+      const cells = tr.querySelectorAll('td');
+      cells.forEach((td, i) => {
+        if (headers[i]) row[headers[i]] = td.textContent.trim();
+      });
+      rows.push(row);
+    });
+  });
+
+  if (!rows.length) {
+    showToast('No hay datos para exportar', 'err');
+    return;
+  }
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Conciliacion');
+  XLSX.writeFile(wb, `conciliacion-bancaria-${new Date().toISOString().slice(0,10)}.xlsx`);
+  showToast('Excel exportado', 'ok');
+}
+
+function cerrarBanco() {
+  document.getElementById('banco-overlay').classList.remove('show');
+}
+
+// ============================================================
+// Comparativo mensual
+// ============================================================
+
+function abrirComparativo() {
+  const hoy = new Date();
+  const mesActual = hoy.toISOString().slice(0, 7);
+  const mesAnteriorDate = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+  const mesAnterior = mesAnteriorDate.toISOString().slice(0, 7);
+
+  document.getElementById('comp-mes1').value = mesAnterior;
+  document.getElementById('comp-mes2').value = mesActual;
+  document.getElementById('comp-summary').innerHTML = '';
+  document.getElementById('comp-results').innerHTML = '<div class="comp-empty">Selecciona dos meses y presiona Comparar</div>';
+  document.getElementById('comp-overlay').classList.add('show');
+}
+
+function cerrarComparativo() {
+  document.getElementById('comp-overlay').classList.remove('show');
+}
+
+async function ejecutarComparativo() {
+  const mes1 = document.getElementById('comp-mes1').value;
+  const mes2 = document.getElementById('comp-mes2').value;
+
+  if (!mes1 || !mes2) {
+    document.getElementById('comp-results').innerHTML = '<p style="color:var(--warn)">Selecciona ambos meses.</p>';
+    return;
+  }
+  if (mes1 === mes2) {
+    document.getElementById('comp-results').innerHTML = '<p style="color:var(--warn)">Los meses deben ser diferentes.</p>';
+    return;
+  }
+
+  document.getElementById('comp-loading').style.display = 'inline';
+  document.getElementById('comp-summary').innerHTML = '';
+  document.getElementById('comp-results').innerHTML = '';
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/comparativo?mes1=${mes1}&mes2=${mes2}`);
+    const data = await res.json();
+
+    document.getElementById('comp-loading').style.display = 'none';
+
+    if (!data.ok) {
+      document.getElementById('comp-results').innerHTML = `<p style="color:var(--warn)">Error: ${data.error}</p>`;
+      return;
+    }
+
+    renderComparativo(data);
+  } catch (err) {
+    document.getElementById('comp-loading').style.display = 'none';
+    document.getElementById('comp-results').innerHTML = `<p style="color:var(--warn)">Error de conexion: ${err.message}</p>`;
+  }
+}
+
+function nombreMes(mesStr) {
+  const [y, m] = mesStr.split('-');
+  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  return meses[parseInt(m) - 1] + ' ' + y;
+}
+
+function renderComparativo(data) {
+  const r = data.resumen;
+  const label1 = nombreMes(data.mes1);
+  const label2 = nombreMes(data.mes2);
+
+  const diffClass = r.diferencia > 0 ? 'comp-up' : r.diferencia < 0 ? 'comp-down' : 'comp-neutral';
+  const diffArrow = r.diferencia > 0 ? '&#9650;' : r.diferencia < 0 ? '&#9660;' : '&#9644;';
+  const diffSign = r.diferencia > 0 ? '+' : '';
+
+  document.getElementById('comp-summary').innerHTML = `
+    <div class="dian-stat">
+      <div class="ds-label">${label1}</div>
+      <div class="ds-value">${fmt(r.total_mes1)}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.registros_mes1} registros</div>
+    </div>
+    <div class="dian-stat">
+      <div class="ds-label">${label2}</div>
+      <div class="ds-value">${fmt(r.total_mes2)}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.registros_mes2} registros</div>
+    </div>
+    <div class="dian-stat">
+      <div class="ds-label">Diferencia</div>
+      <div class="ds-value ${diffClass}">${diffSign}${fmt(r.diferencia)}</div>
+      <div style="font-size:10px;margin-top:2px" class="${diffClass}">
+        <span class="comp-arrow">${diffArrow}</span>${diffSign}${r.porcentaje}%
+      </div>
+    </div>
+    <div class="dian-stat">
+      <div class="ds-label">Categorias</div>
+      <div class="ds-value">${r.categorias_activas}</div>
+    </div>
+  `;
+
+  if (data.categorias.length === 0) {
+    document.getElementById('comp-results').innerHTML = '<div class="comp-empty">Sin datos en ambos meses seleccionados.</div>';
+    return;
+  }
+
+  let html = `<table class="comp-result-table">
+    <thead><tr>
+      <th>Categoria</th>
+      <th>${label1}</th>
+      <th>${label2}</th>
+      <th>Diferencia</th>
+      <th>%</th>
+    </tr></thead><tbody>`;
+
+  for (const cat of data.categorias) {
+    const cls = cat.diferencia > 0 ? 'comp-up' : cat.diferencia < 0 ? 'comp-down' : 'comp-neutral';
+    const arrow = cat.diferencia > 0 ? '&#9650; ' : cat.diferencia < 0 ? '&#9660; ' : '';
+    const sign = cat.diferencia > 0 ? '+' : '';
+    const pctSign = cat.porcentaje > 0 ? '+' : '';
+
+    html += `<tr>
+      <td>${cat.categoria}</td>
+      <td>${cat.mes1 !== 0 ? fmt(cat.mes1) : '<span class="comp-neutral">—</span>'}</td>
+      <td>${cat.mes2 !== 0 ? fmt(cat.mes2) : '<span class="comp-neutral">—</span>'}</td>
+      <td class="${cls}"><span class="comp-arrow">${arrow}</span>${sign}${fmt(cat.diferencia)}</td>
+      <td class="${cls}">${pctSign}${cat.porcentaje}%</td>
+    </tr>`;
+  }
+
+  const totalCls = r.diferencia > 0 ? 'comp-up' : r.diferencia < 0 ? 'comp-down' : 'comp-neutral';
+  const totalArrow = r.diferencia > 0 ? '&#9650; ' : r.diferencia < 0 ? '&#9660; ' : '';
+  const totalSign = r.diferencia > 0 ? '+' : '';
+  const totalPctSign = r.porcentaje > 0 ? '+' : '';
+
+  html += `<tr class="comp-total-row">
+    <td style="font-family:var(--serif);font-size:13px">TOTAL</td>
+    <td style="font-weight:600">${fmt(r.total_mes1)}</td>
+    <td style="font-weight:600">${fmt(r.total_mes2)}</td>
+    <td class="${totalCls}" style="font-weight:600"><span class="comp-arrow">${totalArrow}</span>${totalSign}${fmt(r.diferencia)}</td>
+    <td class="${totalCls}" style="font-weight:600">${totalPctSign}${r.porcentaje}%</td>
+  </tr>`;
+
+  html += '</tbody></table>';
+
+  document.getElementById('comp-results').innerHTML = html;
+}
+
+// ============================================================
+// Recurrentes
+// ============================================================
+
+async function loadRecurrentes() {
+  const ahora = new Date();
+  const mes   = ahora.getMonth() + 1;
+  const anio  = ahora.getFullYear();
+  try {
+    const res = await fetch(`${WORKER_URL}/api/recurrentes?mes=${mes}&anio=${anio}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const section = document.getElementById('recurrentes-section');
+    const container = document.getElementById('recurrentes-warn');
+    section.style.display = 'block';
+
+    let html = '';
+
+    // Mostrar faltantes primero (advertencias)
+    for (const f of data.faltantes) {
+      html += `<div class="rec-warn" title="Sin registro en ${mesNombre(mes)} ${anio}">
+        <div class="rec-dot"></div> ${f.nombre}
+      </div>`;
+    }
+
+    // Mostrar confirmados
+    for (const o of data.ok) {
+      const valor = o.registro ? formatCOP(o.registro.total) : '';
+      html += `<div class="rec-ok" title="${valor}">
+        <div class="rec-dot"></div> ${o.nombre}
+      </div>`;
+    }
+
+    // Resumen
+    if (data.faltantes.length > 0) {
+      html += `<div class="rec-summary">${data.faltantes.length} de ${data.faltantes.length + data.ok.length} pendientes en ${mesNombre(mes)}</div>`;
+    } else {
+      html += `<div class="rec-summary">Todo al dia en ${mesNombre(mes)}</div>`;
+    }
+
+    container.innerHTML = html;
+  } catch (e) {
+    // Silencioso si el worker no responde
+  }
+}
+
+function mesNombre(m) {
+  return ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m] || '';
+}
+
+// ============================================================
+// Estado del mes — Recordatorios DIAN
+// ============================================================
+
+function getEstadoDismissKey(mes, anio) {
+  return `cocicp_estado_dismiss_${anio}_${mes}`;
+}
+
+function isEstadoDismissed(mes, anio) {
+  try {
+    return localStorage.getItem(getEstadoDismissKey(mes, anio)) === '1';
+  } catch { return false; }
+}
+
+function dismissEstado(mes, anio) {
+  try {
+    localStorage.setItem(getEstadoDismissKey(mes, anio), '1');
+  } catch {}
+  const banner = document.getElementById('estado-banner');
+  if (banner) banner.classList.add('hidden');
+}
+
+function formatCOP(n) {
+  return '$' + Math.round(n).toLocaleString('es-CO');
+}
+
+async function loadEstadoMes() {
+  const hoy  = new Date();
+  const mes  = hoy.getMonth() + 1;
+  const anio = hoy.getFullYear();
+
+  // Si el usuario lo descarto este mes, no mostrar
+  if (isEstadoDismissed(mes, anio)) return;
+
+  const banner   = document.getElementById('estado-banner');
+  const icon     = document.getElementById('estado-icon');
+  const resumen  = document.getElementById('estado-resumen');
+  const alertas  = document.getElementById('estado-alertas');
+  const btnClose = document.getElementById('estado-dismiss');
+
+  if (!banner) return;
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/estado-mes?mes=${mes}&anio=${anio}`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Icono segun nivel
+    const iconMap = { green: '\u2714', yellow: '\u26A0', red: '\u2716' };
+    icon.textContent = iconMap[data.nivel_global] || '\u2714';
+
+    // Resumen breve
+    resumen.innerHTML =
+      `<strong>${data.total_gastos}</strong> gastos \u00B7 ${formatCOP(data.total_monto)}`;
+
+    // Alertas inline
+    alertas.innerHTML = '';
+    if (data.alertas && data.alertas.length > 0) {
+      data.alertas.forEach(a => {
+        const tag = document.createElement('span');
+        tag.className = `estado-alerta ${a.nivel}`;
+        tag.textContent = a.mensaje;
+        alertas.appendChild(tag);
+      });
+    } else {
+      const tag = document.createElement('span');
+      tag.className = 'estado-alerta green';
+      tag.textContent = 'Todo al dia';
+      alertas.appendChild(tag);
+    }
+
+    // Clase de color
+    banner.className = `estado-banner ${data.nivel_global}`;
+
+    // Dismiss handler
+    btnClose.onclick = () => dismissEstado(mes, anio);
+
+  } catch (err) {
+    // Silencioso — no romper el UI si falla
+    console.warn('estado-mes:', err.message);
+    return;
+  }
+}
+
+// ============================================================
 // Demo data (offline)
 // ============================================================
 const DEMO_DATA = [
@@ -1473,6 +2404,273 @@ const DEMO_DATA = [
   { id:8, numero:47, fecha:'2026-02-17', proveedor_nombre:'Laura Anaya', proveedor_nit:'902029628-0', concepto:'Honorarios dic 2025 - Clínica Santa María', categoria:'Honorarios Médicos', iva:0, inc:0, total:14346520, medio_pago:'transferencia', estado:'confirmado' },
   { id:9, numero:38, fecha:'2026-02-09', proveedor_nombre:'Liceo Francés', proveedor_nit:'901423905-4', concepto:'NC #11358 - PPP 10% feb Pablo GS B', categoria:'Educación hijos', iva:0, inc:0, total:-308566, medio_pago:'credito', estado:'confirmado' },
 ];
+</script>
+
+<script>
+(function() {
+  const WORKER_URL = 'https://cocicp-gastos.ddropero.workers.dev';
+
+  const CHART_COLORS = {
+    'Alimentacion':        '#b8f0a0',
+    'Alimentacion/Viaticos':'#a8e090',
+    'Combustible':         '#f0e0a0',
+    'Educacion hijos':     '#a0d0f0',
+    'Honorarios Medicos':  '#f0b0a0',
+    'Mercado/Aseo':        '#c0f0d0',
+    'Seguridad Social':    '#d0b0f0',
+    'Transporte Aereo':    '#f0d0a0',
+    'Gastos Administrativos':'#a0f0e0',
+    'Tecnologia':          '#b0c0f0',
+    'Salud':               '#f0a0c0',
+    'Vivienda':            '#e0e0a0',
+    'Impuestos vehiculos': '#c0c0c0',
+    'Parqueadero':         '#d0d0b0',
+    'Personal':            '#f0c0f0',
+    'Miscelaneos':         '#a0a0a0',
+    'Pagos David Duque':   '#b0e0b0',
+    'Libros':              '#c0d0e0',
+    'Alojamiento':         '#e0c0a0',
+    'Prestadores de servicios':'#a0c0b0'
+  };
+
+  // Normalizar tildes para lookup de colores
+  function normKey(s) {
+    return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function getColor(cat) {
+    return CHART_COLORS[normKey(cat)] || '#888888';
+  }
+
+  // ── Inyectar boton y contenedor ──
+  const main = document.querySelector('main') || document.querySelector('.content');
+  if (!main) return;
+
+  const chartWrapper = document.createElement('div');
+  chartWrapper.id = 'chart-section';
+  chartWrapper.className = 'chart-section collapsed';
+  chartWrapper.innerHTML = `
+    <button id="btn-tendencias" class="btn-tendencias" onclick="window._toggleChart()">
+      <span class="btn-icon">&#x25B6;</span> Tendencias
+    </button>
+    <div id="chart-container" class="chart-container">
+      <div id="chart-loading" class="chart-loading">Cargando datos...</div>
+      <canvas id="tendencias-canvas"></canvas>
+    </div>
+  `;
+
+  // Insertar antes del primer hijo de main
+  main.insertBefore(chartWrapper, main.firstChild);
+
+  let chartInstance = null;
+  let chartLoaded = false;
+  let chartJsReady = false;
+
+  // ── Cargar Chart.js dinamicamente ──
+  function loadChartJs() {
+    return new Promise((resolve, reject) => {
+      if (chartJsReady) { resolve(); return; }
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+      script.onload = () => { chartJsReady = true; resolve(); };
+      script.onerror = () => reject(new Error('No se pudo cargar Chart.js'));
+      document.head.appendChild(script);
+    });
+  }
+
+  // ── Toggle chart section ──
+  window._toggleChart = async function() {
+    const section = document.getElementById('chart-section');
+    const btn = document.getElementById('btn-tendencias');
+    const icon = btn.querySelector('.btn-icon');
+    const container = document.getElementById('chart-container');
+
+    if (section.classList.contains('collapsed')) {
+      section.classList.remove('collapsed');
+      icon.innerHTML = '&#x25BC;';
+      if (!chartLoaded) {
+        await renderChart();
+      }
+    } else {
+      section.classList.add('collapsed');
+      icon.innerHTML = '&#x25B6;';
+    }
+  };
+
+  // ── Fetch data y renderizar ──
+  async function renderChart() {
+    const loading = document.getElementById('chart-loading');
+    const canvas = document.getElementById('tendencias-canvas');
+
+    try {
+      loading.style.display = 'block';
+      canvas.style.display = 'none';
+
+      // Cargar Chart.js y datos en paralelo
+      const [_, response] = await Promise.all([
+        loadChartJs(),
+        fetch(`${WORKER_URL}/api/tendencias?meses=6`)
+      ]);
+
+      const data = await response.json();
+      if (!data.ok || !data.meses || data.meses.length === 0) {
+        loading.textContent = 'Sin datos para mostrar';
+        return;
+      }
+
+      loading.style.display = 'none';
+      canvas.style.display = 'block';
+
+      // Determinar top 5 categorias por total acumulado
+      const catTotals = {};
+      for (const m of data.meses) {
+        for (const [cat, val] of Object.entries(m.categorias)) {
+          catTotals[cat] = (catTotals[cat] || 0) + val;
+        }
+      }
+      const top5 = Object.entries(catTotals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(e => e[0]);
+
+      // Labels (meses)
+      const labels = data.meses.map(m => {
+        const [y, mo] = m.mes.split('-');
+        const nombres = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+        return nombres[parseInt(mo) - 1] + ' ' + y.slice(2);
+      });
+
+      // Datasets: stacked bars para top 5
+      const datasets = top5.map(cat => ({
+        label: cat,
+        data: data.meses.map(m => Math.round((m.categorias[cat] || 0) / 1000)),
+        backgroundColor: getColor(cat) + 'CC',
+        borderColor: getColor(cat),
+        borderWidth: 1,
+        borderRadius: 2,
+        stack: 'gastos',
+        order: 2
+      }));
+
+      // "Otras" categorias agrupadas
+      const otrasData = data.meses.map(m => {
+        let otrasTotal = 0;
+        for (const [cat, val] of Object.entries(m.categorias)) {
+          if (!top5.includes(cat)) otrasTotal += val;
+        }
+        return Math.round(otrasTotal / 1000);
+      });
+
+      datasets.push({
+        label: 'Otras',
+        data: otrasData,
+        backgroundColor: '#555555CC',
+        borderColor: '#555555',
+        borderWidth: 1,
+        borderRadius: 2,
+        stack: 'gastos',
+        order: 2
+      });
+
+      // Linea de tendencia total
+      datasets.push({
+        label: 'Total mes',
+        data: data.meses.map(m => Math.round(m.total / 1000)),
+        type: 'line',
+        borderColor: '#b8f0a0',
+        backgroundColor: '#b8f0a020',
+        borderWidth: 2,
+        pointBackgroundColor: '#b8f0a0',
+        pointBorderColor: '#0d0f0e',
+        pointBorderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        tension: 0.3,
+        fill: false,
+        order: 1,
+        yAxisID: 'y'
+      });
+
+      // Crear chart
+      const ctx = canvas.getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: {
+                color: '#6b7a6b',
+                font: { family: "'DM Mono', monospace", size: 10 },
+                boxWidth: 12,
+                boxHeight: 12,
+                padding: 12,
+                usePointStyle: false
+              }
+            },
+            tooltip: {
+              backgroundColor: '#141716',
+              borderColor: '#222724',
+              borderWidth: 1,
+              titleColor: '#e8ede8',
+              bodyColor: '#6b7a6b',
+              titleFont: { family: "'DM Mono', monospace", size: 12 },
+              bodyFont: { family: "'DM Mono', monospace", size: 11 },
+              padding: 10,
+              callbacks: {
+                label: function(ctx) {
+                  const val = ctx.parsed.y;
+                  return ctx.dataset.label + ': $' + val.toLocaleString('es-CO') + 'k';
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: '#222724', lineWidth: 0.5 },
+              ticks: {
+                color: '#6b7a6b',
+                font: { family: "'DM Mono', monospace", size: 10 }
+              },
+              border: { color: '#222724' }
+            },
+            y: {
+              stacked: true,
+              grid: { color: '#222724', lineWidth: 0.5 },
+              ticks: {
+                color: '#6b7a6b',
+                font: { family: "'DM Mono', monospace", size: 10 },
+                callback: function(v) { return '$' + v.toLocaleString('es-CO') + 'k'; }
+              },
+              border: { color: '#222724' }
+            }
+          }
+        }
+      });
+
+      chartLoaded = true;
+    } catch (err) {
+      loading.textContent = 'Error cargando tendencias';
+      console.error('Chart error:', err);
+    }
+  }
+})();
+</script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+  }
 </script>
 </body>
 </html>
