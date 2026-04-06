@@ -1,0 +1,22 @@
+name = "cocicp-gastos"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Variables de entorno (la API key va en secrets, no aquí)
+[vars]
+ENVIRONMENT = "production"
+
+# D1 — Base de datos
+[[d1_databases]]
+binding  = "DB"
+database_name = "cocicp-gastos"
+database_id   = "82b3f166-7042-48de-b8fb-b0350423c4be"
+
+# R2 — Almacenamiento de soportes
+[[r2_buckets]]
+binding     = "BUCKET"
+bucket_name = "cocicp-soportes"
+
+# Para desarrollo local
+[dev]
+port = 8787

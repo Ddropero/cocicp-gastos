@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>COCICP · Gastos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0d0f0e;
+    --surface:  #141716;
+    --border:   #222724;
+    --accent:   #b8f0a0;
+    --accent2:  #f0e0a0;
+    --warn:     #f0b0a0;
+    --text:     #e8ede8;
+    --muted:    #6b7a6b;
+    --mono:     'DM Mono', monospace;
+    --serif:    'Fraunces', serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid layout ── */
+  .app {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    grid-template-rows: 56px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    grid-column: 1/-1;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    gap: 16px;
+    background: var(--surface);
+  }
+  .logo {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    color: var(--accent);
+  }
+  .logo span { color: var(--muted); font-style: italic; }
+  .header-total {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .header-total strong {
+    color: var(--accent);
+    font-size: 15px;
+    display: block;
+  }
+  .user-badge {
+    background: var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .user-badge.active { color: var(--accent); border: 1px solid var(--accent); }
+
+  /* ── Sidebar ── */
+  nav {
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    background: var(--surface);
+  }
+  .nav-section {
+    padding: 0 16px;
+    margin-bottom: 24px;
+  }
+  .nav-label {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    padding: 0 4px;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--muted);
+    transition: all 0.15s;
+    font-size: 12px;
+  }
+  .nav-item:hover { background: var(--border); color: var(--text); }
+  .nav-item.active { background: #1a2e1a; color: var(--accent); }
+  .nav-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.5;
+    flex-shrink: 0;
+  }
+  .nav-item.active .nav-dot { opacity: 1; }
+
+  /* ── Main content ── */
+  main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Upload zone ── */
+  .upload-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .drop-zone {
+    flex: 1;
+    border: 1.5px dashed var(--border);
+    border-radius: 6px;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .drop-zone:hover, .drop-zone.drag { border-color: var(--accent); background: #1a2e1a22; }
+  .drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .drop-icon { font-size: 20px; }
+  .drop-text { color: var(--muted); font-size: 12px; }
+  .drop-text strong { color: var(--text); display: block; margin-bottom: 2px; }
+
+  .btn {
+    padding: 9px 18px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: #0d1a0d; }
+  .btn-primary:hover { background: #d0ffb0; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+
+  /* ── Processing overlay ── */
+  .processing-bar {
+    display: none;
+    padding: 10px 24px;
+    background: #1a2e1a;
+    border-bottom: 1px solid var(--accent);
+    gap: 16px;
+    align-items: center;
+  }
+  .processing-bar.show { display: flex; }
+  .agents {
+    display: flex;
+    gap: 12px;
+  }
+  .agent-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    transition: all 0.3s;
+  }
+  .agent-pill.running { color: var(--accent2); border-color: var(--accent2); }
+  .agent-pill.done { color: var(--accent); border-color: var(--accent); }
+  .agent-pill.error { color: var(--warn); border-color: var(--warn); }
+  .spinner {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    border-top-color: transparent;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Preview card ── */
+  .preview-panel {
+    display: none;
+    margin: 16px 24px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    animation: slideIn 0.25s ease;
+  }
+  .preview-panel.show { display: block; }
+  @keyframes slideIn { from { opacity:0; transform: translateY(-8px); } }
+
+  .preview-header {
+    padding: 12px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .preview-title {
+    font-family: var(--serif);
+    font-size: 15px;
+    font-weight: 300;
+  }
+  .badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+  }
+  .badge-ok { background: #1a3a1a; color: var(--accent); }
+  .badge-warn { background: #3a2a1a; color: var(--accent2); }
+  .badge-err { background: #3a1a1a; color: var(--warn); }
+  .badge-dup { background: #3a1a3a; color: #f0a0f0; }
+
+  .preview-body {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+  }
+  .preview-field { display: flex; flex-direction: column; gap: 4px; }
+  .preview-field.wide { grid-column: span 2; }
+  .preview-field.full { grid-column: 1/-1; }
+  .field-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .field-value { color: var(--text); font-size: 13px; }
+  .field-value.big { font-family: var(--serif); font-size: 22px; font-weight: 600; color: var(--accent); }
+  .field-value.neg { color: var(--warn); }
+  .field-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    width: 100%;
+    transition: border-color 0.15s;
+  }
+  .field-input:focus { outline: none; border-color: var(--accent); }
+  select.field-input { cursor: pointer; }
+
+  .preview-footer {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  /* ── Gastos list ── */
+  .gastos-header {
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .filter-tabs { display: flex; gap: 4px; }
+  .tab {
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--muted);
+    transition: all 0.15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--border); color: var(--text); }
+  .search-box {
+    margin-left: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    width: 200px;
+  }
+  .search-box:focus { outline: none; border-color: var(--muted); }
+  .search-box::placeholder { color: var(--muted); }
+
+  .gastos-table { flex: 1; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+  }
+  tbody tr {
+    border-bottom: 1px solid #1a1c1a;
+    transition: background 0.1s;
+    cursor: pointer;
+  }
+  tbody tr:hover { background: var(--surface); }
+  tbody tr.nc { opacity: 0.7; }
+  td { padding: 9px 12px; font-size: 12px; }
+  td.num { color: var(--muted); font-size: 11px; width: 40px; }
+  td.fecha { color: var(--muted); white-space: nowrap; }
+  td.proveedor { font-weight: 500; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.concepto { color: var(--muted); font-size: 11px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.cat span {
+    background: var(--border);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+  td.total { text-align: right; font-weight: 500; white-space: nowrap; }
+  td.total.neg { color: var(--warn); }
+  td.total.pos { color: var(--accent); }
+  td.estado span {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  /* ── Footer stats ── */
+  .stats-bar {
+    border-top: 1px solid var(--border);
+    padding: 10px 24px;
+    display: flex;
+    gap: 32px;
+    background: var(--surface);
+  }
+  .stat { display: flex; flex-direction: column; gap: 2px; }
+  .stat-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .stat-value { font-size: 14px; color: var(--text); }
+  .stat-value.accent { color: var(--accent); }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 18px;
+    font-size: 12px;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    animation: toastIn 0.2s ease;
+    z-index: 100;
+  }
+  .toast.show { display: flex; }
+  .toast.ok { border-color: var(--accent); }
+  .toast.err { border-color: var(--warn); }
+  @keyframes toastIn { from { opacity:0; transform: translateY(8px); } }
+
+  /* ── Modal cruce DIAN ── */
+  .dian-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:150;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto}
+  .dian-overlay.show{display:flex}
+  .dian-modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;max-width:900px;width:100%;padding:24px}
+  .dian-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .dian-header h2{font-family:var(--serif);font-weight:300;font-size:18px;color:var(--accent2)}
+  .dian-header .dian-close{margin-left:auto;cursor:pointer;color:var(--muted);font-size:18px}
+  .dian-stats{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+  .dian-stat{background:var(--bg);padding:10px 14px;border-radius:6px;border:1px solid var(--border)}
+  .dian-stat .ds-label{font-size:10px;color:var(--muted);text-transform:uppercase}
+  .dian-stat .ds-value{font-size:18px;font-weight:500;margin-top:2px}
+  .dian-stat .ds-value.green{color:var(--accent)}.dian-stat .ds-value.yellow{color:var(--accent2)}.dian-stat .ds-value.blue{color:#a0d0f0}
+  .dian-section{margin-bottom:16px}
+  .dian-section h3{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+  .dian-section h3 span{background:var(--border);padding:1px 8px;border-radius:10px;font-size:11px}
+  .dian-table{width:100%;border-collapse:collapse;font-size:11px}
+  .dian-table th{text-align:left;padding:6px 8px;color:var(--muted);font-weight:400;border-bottom:1px solid var(--border)}
+  .dian-table td{padding:6px 8px;border-bottom:1px solid var(--border)}
+  .dian-table tr:hover{background:var(--bg)}
+  .dian-check{width:16px;height:16px;accent-color:var(--accent)}
+  .dian-actions{display:flex;gap:10px;margin-top:16px}
+
+  /* ── Empty state ── */
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px;
+    color: var(--muted);
+    gap: 8px;
+  }
+  .empty-icon { font-size: 32px; opacity: 0.3; }
+  .empty-text { font-family: var(--serif); font-size: 16px; font-weight: 300; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">COCICP <span>gastos</span></div>
+    <div class="header-total">
+      <strong id="header-total">$0</strong>
+      acumulado período
+    </div>
+    <div class="user-badge active" id="usuario-btn" onclick="toggleUsuario()">david</div>
+  </header>
+
+  <!-- Sidebar -->
+  <nav>
+    <div class="nav-section">
+      <div class="nav-label">Vistas</div>
+      <div class="nav-item active" onclick="setTab('todos')"><div class="nav-dot"></div> Todos</div>
+      <div class="nav-item" onclick="setTab('revision')"><div class="nav-dot"></div> En revisión</div>
+      <div class="nav-item" onclick="setTab('deducibles')"><div class="nav-dot"></div> Deducibles</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Categorías</div>
+      <div id="cat-nav"></div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">DIAN</div>
+      <div class="nav-item" onclick="document.getElementById('dian-file').click()" style="color:var(--accent2)">
+        <div class="nav-dot" style="background:var(--accent2)"></div> Cruce mensual
+      </div>
+      <input type="file" id="dian-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="procesarDIAN(this.files[0])">
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Exportar</div>
+      <div class="nav-item" onclick="exportarExcel()"><div class="nav-dot"></div> Excel</div>
+      <div class="nav-item" onclick="exportarCSV()"><div class="nav-dot"></div> CSV</div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main>
+
+    <!-- Upload bar -->
+    <div class="upload-bar">
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="file-input" accept="image/*,.pdf" multiple
+          onchange="handleFiles(this.files)">
+        <div class="drop-icon">⊕</div>
+        <div class="drop-text">
+          <strong>Subir factura o comprobante</strong>
+          JPG · PNG · PDF — arrastra o toca aquí
+        </div>
+      </div>
+      <button class="btn btn-ghost" onclick="document.getElementById('file-input').click()">
+        Seleccionar
+      </button>
+    </div>
+
+    <!-- Processing bar (multi-archivo) -->
+    <div class="processing-bar" id="processing-bar">
+      <span style="font-size:11px;color:var(--muted);">Procesando</span>
+      <div id="proc-files" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted)" id="proc-status"></span>
+    </div>
+
+    <!-- Preview card -->
+    <div class="preview-panel" id="preview-panel">
+      <div class="preview-header">
+        <span class="preview-title" id="prev-titulo">—</span>
+        <span class="badge" id="prev-badge">—</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--muted)" id="prev-confianza"></span>
+      </div>
+      <div class="preview-body">
+        <div class="preview-field">
+          <div class="field-label">Total</div>
+          <div class="field-value big" id="prev-total">—</div>
+        </div>
+        <div class="preview-field">
+          <div class="field-label">Fecha</div>
+          <input class="field-input" type="date" id="prev-fecha">
+        </div>
+        <div class="preview-field">
+          <div class="field-label">Número documento</div>
+          <input class="field-input" type="text" id="prev-numdoc">
+        </div>
+        <div class="preview-field wide">
+          <div class="field-label">Proveedor</div>
+          <input class="field-input" type="text" id="prev-proveedor">
+        </div>
+        <div class="preview-field">
+          <div class="field-label">NIT</div>
+          <input class="field-input" type="text" id="prev-nit">
+        </div>
+        <div class="preview-field full">
+          <div class="field-label">Concepto</div>
+          <input class="field-input" type="text" id="prev-concepto">
+        </div>
+        <div class="preview-field">
+          <div class="field-label">Categoría</div>
+          <select class="field-input" id="prev-categoria">
+            <option>Alimentación</option>
+            <option>Alimentación/Viáticos</option>
+            <option>Mercado/Aseo</option>
+            <option>Combustible</option>
+            <option>Educación hijos</option>
+            <option>Honorarios Médicos</option>
+            <option>Prestadores de servicios</option>
+            <option>Seguridad Social</option>
+            <option>Impuestos vehículos</option>
+            <option>Gastos Administrativos</option>
+            <option>Transporte Aéreo</option>
+            <option>Alojamiento</option>
+            <option>Salud</option>
+            <option>Tecnología</option>
+            <option>Libros</option>
+            <option>Personal</option>
+            <option>Misceláneos</option>
+            <option>Vivienda</option>
+            <option>Pagos David Duque</option>
+            <option>Parqueadero</option>
+          </select>
+        </div>
+        <div class="preview-field">
+          <div class="field-label">Medio de pago</div>
+          <input class="field-input" type="text" id="prev-medio">
+        </div>
+        <div class="preview-field">
+          <div class="field-label">Referencia</div>
+          <input class="field-input" type="text" id="prev-ref">
+        </div>
+        <div class="preview-field" id="prev-soporte-wrap" style="display:none">
+          <div class="field-label">Soporte</div>
+          <a class="field-input" id="prev-soporte-link" href="#" target="_blank"
+             style="color:var(--accent);text-decoration:none;display:flex;align-items:center;gap:6px;">
+            📎 Ver documento
+          </a>
+        </div>
+      </div>
+      <div class="preview-footer">
+        <button class="btn btn-ghost" onclick="cancelarPreview()">Descartar</button>
+        <button class="btn btn-danger" id="btn-delete" onclick="borrarGasto()" style="display:none;background:#3a1a1a;color:var(--warn);border:1px solid #5a2a2a;">
+          Borrar
+        </button>
+        <button class="btn btn-primary" id="btn-confirm" onclick="confirmarGasto()">
+          Confirmar y guardar
+        </button>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="gastos-header">
+      <div class="filter-tabs">
+        <div class="tab active" onclick="filtrarPeriodo('mes')">Este mes</div>
+        <div class="tab" onclick="filtrarPeriodo('2026')">2026</div>
+        <div class="tab" onclick="filtrarPeriodo('todo')">Todo</div>
+      </div>
+      <input class="search-box" placeholder="Buscar proveedor, concepto..." oninput="buscar(this.value)">
+    </div>
+
+    <!-- Tabla -->
+    <div class="gastos-table">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Fecha</th>
+            <th>Proveedor</th>
+            <th>Concepto</th>
+            <th>Categoría</th>
+            <th>IVA</th>
+            <th style="text-align:right">Total</th>
+            <th style="text-align:center">Soporte</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="gastos-body">
+          <tr><td colspan="9"><div class="empty">
+            <div class="empty-icon">◈</div>
+            <div class="empty-text">Cargando registros...</div>
+          </div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="stats-bar">
+      <div class="stat">
+        <div class="stat-label">Registros</div>
+        <div class="stat-value" id="stat-count">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Gran total</div>
+        <div class="stat-value accent" id="stat-total">$0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Deducible</div>
+        <div class="stat-value" id="stat-ded">$0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">IVA total</div>
+        <div class="stat-value" id="stat-iva">$0</div>
+      </div>
+      <div class="stat" style="margin-left:auto">
+        <div class="stat-label">Usuario</div>
+        <div class="stat-value" id="stat-user">david</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal cruce DIAN -->
+<div class="dian-overlay" id="dian-overlay" onclick="if(event.target===this)cerrarDIAN()">
+  <div class="dian-modal">
+    <div class="dian-header">
+      <h2>Cruce DIAN</h2>
+      <span id="dian-loading" style="font-size:11px;color:var(--muted);display:none">Procesando...</span>
+      <span class="dian-close" onclick="cerrarDIAN()">✕</span>
+    </div>
+    <div class="dian-stats" id="dian-stats"></div>
+    <div id="dian-results"></div>
+    <div class="dian-actions" id="dian-actions" style="display:none">
+      <button class="btn btn-primary" onclick="importarNuevos()">Importar nuevos seleccionados</button>
+      <button class="btn btn-ghost" onclick="completarTodos()">Completar info faltante</button>
+      <button class="btn btn-ghost" onclick="cerrarDIAN()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <span id="toast-icon">✓</span>
+  <span id="toast-msg">Guardado</span>
+</div>
+
+<script>
+// ============================================================
+// CONFIG — cambiar por URL real del Worker
+// ============================================================
+const WORKER_URL = 'https://cocicp-gastos.ddropero.workers.dev';
+
+// ============================================================
+// Estado local
+// ============================================================
+let gastos      = [];
+let gastosFilt  = [];
+let previewData = null;
+let usuario     = 'david';
+let periodo     = 'mes';
+let busqueda    = '';
+let catActiva   = null;
+
+// ============================================================
+// Formateo
+// ============================================================
+const fmt = n => new Intl.NumberFormat('es-CO', {
+  style: 'currency', currency: 'COP', maximumFractionDigits: 0
+}).format(n);
+
+const fmtFecha = s => s ? s.slice(0,10) : '—';
+
+// ============================================================
+// Init
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  setupDrop();
+  cargarGastos();
+});
+
+// ============================================================
+// Drag & drop
+// ============================================================
+function setupDrop() {
+  const dz = document.getElementById('drop-zone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('drag');
+    handleFiles(e.dataTransfer.files);
+  });
+}
+
+// ============================================================
+// Subir archivos → 3 agentes por archivo (paralelo)
+// ============================================================
+let previewQueue = [];
+let isShowingPreview = false;
+
+async function handleFiles(files) {
+  if (!files.length) return;
+  const fileList = Array.from(files);
+
+  // Mostrar barra de progreso
+  const bar = document.getElementById('processing-bar');
+  const container = document.getElementById('proc-files');
+  const status = document.getElementById('proc-status');
+  bar.classList.add('show');
+  container.innerHTML = '';
+  status.textContent = `0 / ${fileList.length}`;
+
+  // Crear pill por archivo
+  const pills = fileList.map((f, i) => {
+    const pill = document.createElement('div');
+    pill.className = 'agent-pill running';
+    pill.innerHTML = `<div class="spinner"></div> ${f.name.length > 20 ? f.name.slice(0,17) + '...' : f.name}`;
+    pill.id = `file-pill-${i}`;
+    container.appendChild(pill);
+    return pill;
+  });
+
+  let done = 0;
+  let errors = 0;
+  let duplicados = 0;
+
+  // Procesar todos en paralelo
+  const promises = fileList.map(async (file, i) => {
+    const shortName = file.name.length > 20 ? file.name.slice(0,17) + '...' : file.name;
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('usuario', usuario);
+
+      const res  = await fetch(`${WORKER_URL}/api/upload`, { method: 'POST', body: form });
+      const data = await res.json();
+
+      done++;
+      status.textContent = `${done} / ${fileList.length}`;
+
+      if (data.ok) {
+        // Descartar duplicados automáticamente
+        if (data.preview.es_posible_duplicado) {
+          duplicados++;
+          pills[i].className = 'agent-pill error';
+          pills[i].innerHTML = `⊘ ${shortName} (duplicado)`;
+        } else {
+          pills[i].className = 'agent-pill done';
+          pills[i].innerHTML = `✓ ${shortName}`;
+          previewQueue.push(data.preview);
+        }
+      } else {
+        pills[i].className = 'agent-pill error';
+        pills[i].innerHTML = `✕ ${shortName}`;
+        errors++;
+      }
+    } catch (err) {
+      done++;
+      errors++;
+      pills[i].className = 'agent-pill error';
+      pills[i].innerHTML = `✕ ${shortName}`;
+    }
+  });
+
+  await Promise.all(promises);
+
+  // Resumen
+  const nuevos = previewQueue.length;
+  const partes = [];
+  if (nuevos > 0) partes.push(`${nuevos} nuevo${nuevos > 1 ? 's' : ''}`);
+  if (duplicados > 0) partes.push(`${duplicados} duplicado${duplicados > 1 ? 's' : ''} descartado${duplicados > 1 ? 's' : ''}`);
+  if (errors > 0) partes.push(`${errors} con error`);
+  showToast(partes.join(' · ') || 'Sin archivos procesados', nuevos > 0 ? 'ok' : 'err');
+
+  // Ocultar barra después de 1.5s
+  setTimeout(() => bar.classList.remove('show'), 1500);
+
+  // Mostrar primer preview de la cola
+  showNextPreview();
+}
+
+function showNextPreview() {
+  if (previewQueue.length === 0) { isShowingPreview = false; return; }
+  isShowingPreview = true;
+  const next = previewQueue.shift();
+  showPreview(next);
+}
+
+// ============================================================
+// Preview card
+// ============================================================
+function showPreview(p) {
+  previewData = p;
+
+  const isNeg = p.total < 0;
+  const totalEl = document.getElementById('prev-total');
+  totalEl.textContent = fmt(p.total);
+  totalEl.className = 'field-value big' + (isNeg ? ' neg' : '');
+
+  document.getElementById('prev-titulo').textContent = p.proveedor_nombre || '—';
+  document.getElementById('prev-fecha').value    = p.fecha || '';
+  document.getElementById('prev-numdoc').value   = p.numero_documento || '';
+  document.getElementById('prev-proveedor').value = p.proveedor_nombre || '';
+  document.getElementById('prev-nit').value      = p.proveedor_nit || '';
+  document.getElementById('prev-concepto').value = p.concepto || '';
+  document.getElementById('prev-medio').value    = p.medio_pago || '';
+  document.getElementById('prev-ref').value      = p.referencia_pago || '';
+
+  const catSel = document.getElementById('prev-categoria');
+  for (let opt of catSel.options) {
+    if (opt.value === p.categoria) { opt.selected = true; break; }
+  }
+
+  const badge    = document.getElementById('prev-badge');
+  const conf     = document.getElementById('prev-confianza');
+  const esDup    = p.es_posible_duplicado;
+  const esRev    = p.estado === 'revision';
+
+  if (esDup) {
+    const dupInfo = p.duplicado_info;
+    const motivo = dupInfo?.tipo === 'numero_documento' ? 'mismo # doc'
+      : dupInfo?.tipo === 'total_fecha_proveedor' ? 'mismo total+fecha+proveedor'
+      : 'mismo total+fecha';
+    badge.textContent = `POSIBLE DUPLICADO (${motivo})`;
+    badge.className   = 'badge badge-dup';
+  } else if (esRev) {
+    badge.textContent = 'REQUIERE REVISIÓN';
+    badge.className   = 'badge badge-warn';
+  } else {
+    badge.textContent = 'LISTO PARA CONFIRMAR';
+    badge.className   = 'badge badge-ok';
+  }
+
+  conf.textContent = `Confianza: ${p.confianza_global || '—'}`;
+
+  // Mostrar botón borrar solo si es un gasto existente (tiene id)
+  const btnDel = document.getElementById('btn-delete');
+  const btnConf = document.getElementById('btn-confirm');
+  if (p.id) {
+    btnDel.style.display = 'inline-flex';
+    btnConf.style.display = 'none';
+  } else {
+    btnDel.style.display = 'none';
+    btnConf.style.display = 'inline-flex';
+  }
+
+  // Soporte link
+  const soporteWrap = document.getElementById('prev-soporte-wrap');
+  const soporteLink = document.getElementById('prev-soporte-link');
+  if (p.archivo_r2) {
+    soporteWrap.style.display = '';
+    soporteLink.href = `${WORKER_URL}/api/soporte/${p.archivo_r2}`;
+  } else {
+    soporteWrap.style.display = 'none';
+  }
+
+  // Indicador de cola
+  const queueCount = previewQueue.length;
+  const confText = queueCount > 0
+    ? `Confirmar y guardar (${queueCount} más)`
+    : 'Confirmar y guardar';
+  btnConf.textContent = confText;
+
+  document.getElementById('preview-panel').classList.add('show');
+}
+
+function cancelarPreview() {
+  document.getElementById('preview-panel').classList.remove('show');
+  previewData = null;
+  // Si hay más en la cola, mostrar el siguiente
+  if (previewQueue.length > 0) {
+    setTimeout(() => showNextPreview(), 300);
+  }
+}
+
+// ============================================================
+// Confirmar gasto → D1
+// ============================================================
+async function confirmarGasto() {
+  if (!previewData) return;
+
+  const btn = document.getElementById('btn-confirm');
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+
+  const body = {
+    ...previewData,
+    fecha:            document.getElementById('prev-fecha').value,
+    numero_documento: document.getElementById('prev-numdoc').value,
+    proveedor_nombre: document.getElementById('prev-proveedor').value,
+    proveedor_nit:    document.getElementById('prev-nit').value,
+    concepto:         document.getElementById('prev-concepto').value,
+    categoria:        document.getElementById('prev-categoria').value,
+    medio_pago:       document.getElementById('prev-medio').value,
+    referencia_pago:  document.getElementById('prev-ref').value,
+    usuario
+  };
+
+  try {
+    const res  = await fetch(`${WORKER_URL}/api/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+
+    if (data.ok) {
+      const quedan = previewQueue.length;
+      showToast(`Registro #${data.numero} guardado${quedan > 0 ? ` — ${quedan} más en cola` : ''}`, 'ok');
+      cancelarPreview();
+      cargarGastos();
+    } else {
+      showToast('Error: ' + data.error, 'err');
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, 'err');
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Confirmar y guardar';
+  }
+}
+
+// ============================================================
+// Borrar gasto
+// ============================================================
+async function borrarGasto() {
+  if (!previewData || !previewData.id) return;
+
+  if (!confirm(`¿Borrar registro #${previewData.numero}?\n${previewData.proveedor_nombre} — ${fmt(previewData.total)}\n\nEsta acción no se puede deshacer.`)) return;
+
+  const btn = document.getElementById('btn-delete');
+  btn.disabled = true;
+  btn.textContent = 'Borrando...';
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/gastos/${previewData.id}`, { method: 'DELETE' });
+    const data = await res.json();
+
+    if (data.ok) {
+      showToast(`Registro #${data.deleted} borrado`, 'ok');
+      cancelarPreview();
+      cargarGastos();
+    } else {
+      showToast('Error: ' + data.error, 'err');
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Borrar';
+  }
+}
+
+// ============================================================
+// Cargar gastos
+// ============================================================
+async function cargarGastos() {
+  const now   = new Date();
+  let desde, hasta;
+  if (periodo === 'mes') {
+    desde = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    hasta = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-31`;
+  } else if (periodo === '2026') {
+    desde = '2026-01-01'; hasta = '2026-12-31';
+  } else {
+    desde = '2024-01-01'; hasta = '2030-12-31';
+  }
+
+  let url = `${WORKER_URL}/api/gastos?desde=${desde}&hasta=${hasta}`;
+  if (catActiva) url += `&categoria=${encodeURIComponent(catActiva)}`;
+
+  try {
+    const res  = await fetch(url);
+    const data = await res.json();
+    gastos = data.registros || [];
+    renderStats(data);
+    renderCatNav(data.por_categoria || {});
+    aplicarFiltros();
+  } catch {
+    // Demo offline
+    gastos = DEMO_DATA;
+    aplicarFiltros();
+    renderStatsLocal();
+  }
+}
+
+function aplicarFiltros() {
+  let f = [...gastos];
+  if (busqueda) {
+    const q = busqueda.toLowerCase();
+    f = f.filter(g =>
+      g.proveedor_nombre?.toLowerCase().includes(q) ||
+      g.concepto?.toLowerCase().includes(q) ||
+      g.numero_documento?.toLowerCase().includes(q)
+    );
+  }
+  gastosFilt = f;
+  renderTabla();
+}
+
+// ============================================================
+// Render tabla
+// ============================================================
+function renderTabla() {
+  const tbody = document.getElementById('gastos-body');
+
+  if (!gastosFilt.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty">
+      <div class="empty-icon">◈</div>
+      <div class="empty-text">Sin registros en este período</div>
+    </div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = gastosFilt.map(g => {
+    const isNeg   = g.total < 0;
+    const isRev   = g.estado === 'revision';
+    const catColor = getCatColor(g.categoria);
+    const soporteLink = g.archivo_r2
+      ? `<a href="${WORKER_URL}/api/soporte/${g.archivo_r2}" target="_blank" onclick="event.stopPropagation()" style="color:var(--accent);text-decoration:none;" title="Ver soporte">📎</a>`
+      : '<span style="color:var(--border)">—</span>';
+    return `<tr class="${isNeg ? 'nc' : ''}" onclick="verDetalle(${g.id})">
+      <td class="num">${g.numero || '—'}</td>
+      <td class="fecha">${fmtFecha(g.fecha)}</td>
+      <td class="proveedor">${g.proveedor_nombre || '—'}</td>
+      <td class="concepto">${g.concepto || '—'}</td>
+      <td class="cat"><span style="background:${catColor}22;color:${catColor}">${g.categoria || '—'}</span></td>
+      <td style="color:var(--muted)">${g.iva ? fmt(g.iva) : '—'}</td>
+      <td class="total ${isNeg ? 'neg' : 'pos'}">${fmt(g.total)}</td>
+      <td style="text-align:center">${soporteLink}</td>
+      <td class="estado"><span style="background:${isRev ? '#3a2a1a' : '#1a3a1a'};color:${isRev ? 'var(--accent2)' : 'var(--accent)'}">
+        ${isRev ? 'revisión' : 'ok'}
+      </span></td>
+    </tr>`;
+  }).join('');
+}
+
+function getCatColor(cat) {
+  const map = {
+    'Alimentación': '#b8f0a0', 'Alimentación/Viáticos': '#d0f0a0',
+    'Combustible': '#f0e0a0', 'Educación hijos': '#a0d0f0',
+    'Honorarios Médicos': '#f0b0a0', 'Prestadores de servicios': '#f0b0c0',
+    'Mercado/Aseo': '#c0f0d0', 'Vivienda': '#d0c0f0',
+    'Impuestos vehículos': '#f0c0a0', 'Seguridad Social': '#a0f0e0',
+    'Pagos David Duque': '#f0a0b0',
+  };
+  return map[cat] || '#888';
+}
+
+// ============================================================
+// Render stats
+// ============================================================
+function renderStats(data) {
+  const total = data.gran_total || 0;
+  document.getElementById('stat-count').textContent  = data.total_registros || 0;
+  document.getElementById('stat-total').textContent  = fmt(total);
+  document.getElementById('header-total').textContent = fmt(total);
+  document.getElementById('stat-iva').textContent    = fmt(
+    (data.registros || []).reduce((s, r) => s + (r.iva || 0), 0)
+  );
+}
+
+function renderStatsLocal() {
+  const total = gastos.reduce((s, g) => s + g.total, 0);
+  document.getElementById('stat-count').textContent  = gastos.length;
+  document.getElementById('stat-total').textContent  = fmt(total);
+  document.getElementById('header-total').textContent = fmt(total);
+}
+
+function renderCatNav(por) {
+  const cats = Object.entries(por).sort((a,b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 8);
+  const el   = document.getElementById('cat-nav');
+  el.innerHTML = cats.map(([cat, val]) => {
+    const safeCat = cat.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    return `
+    <div class="nav-item ${catActiva===cat?'active':''}" onclick="filtrarCat('${safeCat}')">
+      <div class="nav-dot" style="background:${getCatColor(cat)}"></div>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cat}</span>
+      <span style="font-size:10px;color:var(--muted)">${fmt(val)}</span>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// Controles
+// ============================================================
+function setTab(t) {
+  document.querySelectorAll('.nav-item').forEach(el => {
+    if (['todos','revision','deducibles'].some(x => el.textContent.includes(x.charAt(0).toUpperCase() + x.slice(1))))
+      el.classList.remove('active');
+  });
+  catActiva = null;
+  cargarGastos();
+}
+
+function filtrarPeriodo(p) {
+  periodo = p;
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    el.classList.toggle('active', ['mes','2026','todo'][i] === p);
+  });
+  cargarGastos();
+}
+
+function filtrarCat(cat) {
+  catActiva = catActiva === cat ? null : cat;
+  cargarGastos();
+}
+
+function buscar(q) { busqueda = q; aplicarFiltros(); }
+
+function toggleUsuario() {
+  usuario = usuario === 'david' ? 'andrea' : 'david';
+  document.getElementById('usuario-btn').textContent = usuario;
+  document.getElementById('stat-user').textContent   = usuario;
+}
+
+function verDetalle(id) {
+  const g = gastos.find(x => x.id === id);
+  if (g) showPreview(g);
+}
+
+// ============================================================
+// Export
+// ============================================================
+function exportarCSV() {
+  const headers = ['#','Fecha','Proveedor','NIT','Concepto','Categoría','IVA','INC','Total','Medio Pago','Ref'];
+  const rows = gastosFilt.map(g => [
+    g.numero, g.fecha, g.proveedor_nombre, g.proveedor_nit,
+    `"${(g.concepto||'').replace(/"/g,'""')}"`,
+    g.categoria, g.iva||0, g.inc||0, g.total, g.medio_pago||'', g.referencia_pago||''
+  ]);
+  const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+  const a   = document.createElement('a');
+  a.href    = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = `cocicp_gastos_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+function exportarExcel() { showToast('Usa el CSV e impórtalo en Excel', 'ok'); }
+
+// ============================================================
+// Cruce DIAN
+// ============================================================
+let dianNuevos = [];
+let dianCompletar = [];
+let sheetJSLoaded = false;
+
+function loadSheetJS() {
+  return new Promise((resolve, reject) => {
+    if (sheetJSLoaded) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+    s.onload = () => { sheetJSLoaded = true; resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function procesarDIAN(file) {
+  if (!file) return;
+  document.getElementById('dian-file').value = '';
+
+  try {
+    await loadSheetJS();
+  } catch {
+    showToast('Error cargando librería Excel', 'err');
+    return;
+  }
+
+  const overlay = document.getElementById('dian-overlay');
+  overlay.classList.add('show');
+  document.getElementById('dian-loading').style.display = 'inline';
+  document.getElementById('dian-stats').innerHTML = '';
+  document.getElementById('dian-results').innerHTML = '';
+  document.getElementById('dian-actions').style.display = 'none';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+    if (!rows.length) {
+      showToast('Excel vacío', 'err');
+      cerrarDIAN();
+      return;
+    }
+
+    // Mapear columnas DIAN a nuestro formato
+    // La DIAN usa columnas variadas, intentamos detectar las más comunes
+    const filas = rows.map(r => {
+      const keys = Object.keys(r);
+      return {
+        nit_emisor:        findCol(r, keys, ['nit', 'nit_emisor', 'nit emisor', 'nit proveedor', 'identificacion', 'documento emisor']) || '',
+        razon_social:      findCol(r, keys, ['razon_social', 'razón social', 'razon social', 'nombre emisor', 'proveedor', 'nombre']) || '',
+        numero_documento:  findCol(r, keys, ['numero', 'numero_documento', 'número', 'numero factura', 'no. factura', 'prefijo_numero', 'consecutivo', 'folio']) || '',
+        fecha:             parseDate(findCol(r, keys, ['fecha', 'fecha_emision', 'fecha emision', 'fecha emisión', 'fecha documento'])),
+        valor_base:        parseNum(findCol(r, keys, ['subtotal', 'valor_base', 'base', 'base gravable', 'valor antes de iva'])),
+        iva:               parseNum(findCol(r, keys, ['iva', 'valor_iva', 'impuesto', 'iva 19'])),
+        total:             parseNum(findCol(r, keys, ['total', 'valor_total', 'valor total', 'gran total', 'total factura', 'valor'])),
+        tipo_documento:    findCol(r, keys, ['tipo', 'tipo_documento', 'tipo documento', 'clase documento']) || 'factura',
+        cufe:              findCol(r, keys, ['cufe', 'cude', 'cufe/cude']) || '',
+        _raw: r
+      };
+    }).filter(f => f.total || f.nit_emisor);
+
+    if (!filas.length) {
+      document.getElementById('dian-results').innerHTML = '<p style="color:var(--warn)">No se encontraron filas válidas. Verifica que el Excel tiene columnas como NIT, Fecha, Total, etc.</p>';
+      document.getElementById('dian-loading').style.display = 'none';
+      return;
+    }
+
+    // Enviar al Worker para cruzar
+    const res = await fetch(`${WORKER_URL}/api/cruce-dian`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filas })
+    });
+    const data = await res.json();
+
+    document.getElementById('dian-loading').style.display = 'none';
+
+    if (!data.ok) {
+      document.getElementById('dian-results').innerHTML = `<p style="color:var(--warn)">Error: ${data.error}</p>`;
+      return;
+    }
+
+    dianNuevos = data.nuevos || [];
+    dianCompletar = data.completar || [];
+
+    renderDIANResults(data);
+
+  } catch (err) {
+    document.getElementById('dian-loading').style.display = 'none';
+    document.getElementById('dian-results').innerHTML = `<p style="color:var(--warn)">Error: ${err.message}</p>`;
+  }
+}
+
+function findCol(row, keys, candidates) {
+  for (const c of candidates) {
+    const k = keys.find(k => k.toLowerCase().trim() === c.toLowerCase());
+    if (k && row[k] !== '' && row[k] !== undefined) return row[k];
+  }
+  // Partial match
+  for (const c of candidates) {
+    const k = keys.find(k => k.toLowerCase().includes(c.toLowerCase()));
+    if (k && row[k] !== '' && row[k] !== undefined) return row[k];
+  }
+  return null;
+}
+
+function parseDate(v) {
+  if (!v) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  const s = String(v).trim();
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // DD/MM/YYYY o DD-MM-YYYY
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  return null;
+}
+
+function parseNum(v) {
+  if (!v) return 0;
+  if (typeof v === 'number') return v;
+  return parseFloat(String(v).replace(/[^0-9.\-]/g, '')) || 0;
+}
+
+function renderDIANResults(data) {
+  // Stats
+  document.getElementById('dian-stats').innerHTML = `
+    <div class="dian-stat"><div class="ds-label">Total DIAN</div><div class="ds-value">${data.total_dian}</div></div>
+    <div class="dian-stat"><div class="ds-label">Ya existen</div><div class="ds-value green">${data.total_existentes}</div></div>
+    <div class="dian-stat"><div class="ds-label">Completar info</div><div class="ds-value yellow">${data.total_completar}</div></div>
+    <div class="dian-stat"><div class="ds-label">Nuevos</div><div class="ds-value blue">${data.total_nuevos}</div></div>
+  `;
+
+  let html = '';
+
+  // Nuevos
+  if (data.nuevos.length) {
+    html += `<div class="dian-section"><h3>Nuevos para importar <span>${data.nuevos.length}</span></h3>
+    <table class="dian-table"><thead><tr>
+      <th><input type="checkbox" class="dian-check" checked onchange="toggleAllNuevos(this.checked)"></th>
+      <th>NIT</th><th>Proveedor</th><th>No. Doc</th><th>Fecha</th><th>Total</th>
+    </tr></thead><tbody>`;
+    data.nuevos.forEach((f, i) => {
+      html += `<tr>
+        <td><input type="checkbox" class="dian-check nuevo-check" data-idx="${i}" checked></td>
+        <td style="font-size:10px">${f.nit_emisor||'—'}</td>
+        <td>${f.razon_social||'—'}</td>
+        <td style="font-size:10px">${f.numero_documento||'—'}</td>
+        <td>${f.fecha||'—'}</td>
+        <td style="text-align:right">${fmt(f.total)}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Completar
+  if (data.completar.length) {
+    html += `<div class="dian-section"><h3>Completar información <span>${data.completar.length}</span></h3>
+    <table class="dian-table"><thead><tr>
+      <th><input type="checkbox" class="dian-check" checked onchange="toggleAllCompletar(this.checked)"></th>
+      <th>#</th><th>Proveedor actual</th><th>Campos faltantes</th><th>Datos DIAN</th>
+    </tr></thead><tbody>`;
+    data.completar.forEach((c, i) => {
+      const g = c.gasto_existente;
+      const d = c.datos_dian;
+      html += `<tr>
+        <td><input type="checkbox" class="dian-check completar-check" data-idx="${i}" checked></td>
+        <td class="num">${g.numero}</td>
+        <td>${g.proveedor_nombre}</td>
+        <td style="color:var(--accent2)">${c.campos_faltantes.join(', ')}</td>
+        <td style="font-size:10px">${d.numero_documento||''} ${d.nit_emisor||''}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Existentes
+  if (data.existentes.length) {
+    html += `<div class="dian-section"><h3>Ya registrados <span>${data.existentes.length}</span></h3>
+    <table class="dian-table"><thead><tr>
+      <th>#</th><th>Proveedor</th><th>No. Doc</th><th>Total</th><th>Estado</th>
+    </tr></thead><tbody>`;
+    data.existentes.forEach(e => {
+      const g = e.gasto_existente;
+      html += `<tr style="opacity:.6">
+        <td class="num">${g.numero}</td>
+        <td>${g.proveedor_nombre}</td>
+        <td style="font-size:10px">${g.numero_documento||'—'}</td>
+        <td style="text-align:right">${fmt(g.total)}</td>
+        <td style="color:var(--accent)">✓ ok</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  document.getElementById('dian-results').innerHTML = html;
+  if (data.nuevos.length || data.completar.length) {
+    document.getElementById('dian-actions').style.display = 'flex';
+  }
+}
+
+function toggleAllNuevos(checked) {
+  document.querySelectorAll('.nuevo-check').forEach(c => c.checked = checked);
+}
+function toggleAllCompletar(checked) {
+  document.querySelectorAll('.completar-check').forEach(c => c.checked = checked);
+}
+
+async function importarNuevos() {
+  const checks = document.querySelectorAll('.nuevo-check:checked');
+  const registros = Array.from(checks).map(c => {
+    const f = dianNuevos[parseInt(c.dataset.idx)];
+    return {
+      fecha: f.fecha,
+      proveedor_nit: f.nit_emisor,
+      proveedor_nombre: f.razon_social || 'Sin proveedor',
+      numero_documento: f.numero_documento,
+      concepto: `Importado DIAN — ${f.razon_social || f.nit_emisor}`,
+      categoria: 'Misceláneos',
+      valor_base: f.valor_base || 0,
+      iva: f.iva || 0,
+      total: f.total,
+      es_nota_credito: f.tipo_documento?.toLowerCase().includes('credito') || f.tipo_documento?.toLowerCase().includes('crédito') || false
+    };
+  });
+
+  if (!registros.length) { showToast('Ningún registro seleccionado', 'err'); return; }
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/bulk-import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ registros })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`${data.insertados} importados, ${data.omitidos} omitidos (duplicados)`, 'ok');
+      cerrarDIAN();
+      cargarGastos();
+    } else {
+      showToast('Error: ' + data.error, 'err');
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, 'err');
+  }
+}
+
+async function completarTodos() {
+  const checks = document.querySelectorAll('.completar-check:checked');
+  let completados = 0;
+
+  for (const c of checks) {
+    const item = dianCompletar[parseInt(c.dataset.idx)];
+    const g = item.gasto_existente;
+    const d = item.datos_dian;
+    const campos = {};
+
+    if (item.campos_faltantes.includes('numero_documento') && d.numero_documento) {
+      campos.numero_documento = d.numero_documento;
+    }
+    if (item.campos_faltantes.includes('proveedor_nit') && d.nit_emisor) {
+      campos.proveedor_nit = d.nit_emisor;
+    }
+    if (item.campos_faltantes.includes('concepto') && d.razon_social) {
+      campos.concepto = `${d.razon_social} — ${d.numero_documento || ''}`.trim().slice(0, 80);
+    }
+
+    if (Object.keys(campos).length) {
+      try {
+        await fetch(`${WORKER_URL}/api/completar-gasto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: g.id, campos })
+        });
+        completados++;
+      } catch {}
+    }
+  }
+
+  showToast(`${completados} registros actualizados`, 'ok');
+  cerrarDIAN();
+  cargarGastos();
+}
+
+function cerrarDIAN() {
+  document.getElementById('dian-overlay').classList.remove('show');
+  dianNuevos = [];
+  dianCompletar = [];
+}
+
+// ============================================================
+// Toast
+// ============================================================
+function showToast(msg, type = 'ok') {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  document.getElementById('toast-icon').textContent = type === 'ok' ? '✓' : '✕';
+  t.className = `toast show ${type}`;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ============================================================
+// Demo data (offline)
+// ============================================================
+const DEMO_DATA = [
+  { id:1, numero:119, fecha:'2026-04-01', proveedor_nombre:'miplanilla.com', proveedor_nit:'9998600669427', concepto:'Planilla SS dic 2025 - David Duque', categoria:'Seguridad Social', iva:0, inc:0, total:1124100, medio_pago:'pse', estado:'confirmado' },
+  { id:2, numero:118, fecha:'2026-02-28', proveedor_nombre:'Gob. Antioquia', proveedor_nit:'890905211-1', concepto:'Imp. vehículos KHH207 año grav. 2026', categoria:'Impuestos vehículos', iva:0, inc:0, total:259900, medio_pago:'pse', estado:'confirmado' },
+  { id:3, numero:117, fecha:'2026-02-28', proveedor_nombre:'Gob. Antioquia', proveedor_nit:'890905211-1', concepto:'Imp. vehículos FCZ507 año grav. 2026', categoria:'Impuestos vehículos', iva:0, inc:0, total:174400, medio_pago:'pse', estado:'confirmado' },
+  { id:4, numero:116, fecha:'2026-02-28', proveedor_nombre:'Gob. Valle', proveedor_nit:'890399010-1', concepto:'Imp. vehículos CLU053 año grav. 2025', categoria:'Impuestos vehículos', iva:0, inc:0, total:317600, medio_pago:'pse', estado:'confirmado' },
+  { id:5, numero:115, fecha:'2026-02-28', proveedor_nombre:'Gob. Antioquia', proveedor_nit:'890905211-1', concepto:'Imp. vehículos KHH207 año grav. 2025', categoria:'Impuestos vehículos', iva:0, inc:0, total:569900, medio_pago:'pse', estado:'confirmado' },
+  { id:6, numero:113, fecha:'2026-02-28', proveedor_nombre:'Acción Fiduciaria', proveedor_nit:'800155413-6', concepto:'Pago cuota apto 1-60 - David / Andrea', categoria:'Vivienda', iva:0, inc:0, total:38000000, medio_pago:'pse', estado:'confirmado' },
+  { id:7, numero:112, fecha:'2026-02-28', proveedor_nombre:'Juan empl Alejandra', proveedor_nit:'', concepto:'Pago nómina febrero 2026', categoria:'Prestadores de servicios', iva:0, inc:0, total:4600000, medio_pago:'transferencia', estado:'confirmado' },
+  { id:8, numero:47, fecha:'2026-02-17', proveedor_nombre:'Laura Anaya', proveedor_nit:'902029628-0', concepto:'Honorarios dic 2025 - Clínica Santa María', categoria:'Honorarios Médicos', iva:0, inc:0, total:14346520, medio_pago:'transferencia', estado:'confirmado' },
+  { id:9, numero:38, fecha:'2026-02-09', proveedor_nombre:'Liceo Francés', proveedor_nit:'901423905-4', concepto:'NC #11358 - PPP 10% feb Pablo GS B', categoria:'Educación hijos', iva:0, inc:0, total:-308566, medio_pago:'credito', estado:'confirmado' },
+];
+</script>
+</body>
+</html>

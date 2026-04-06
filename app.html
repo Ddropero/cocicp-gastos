@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>COCICP · Captura</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:      #0d0f0e;
+    --surface: #141716;
+    --border:  #222724;
+    --accent:  #b8f0a0;
+    --accent2: #f0e0a0;
+    --warn:    #f0b0a0;
+    --text:    #e8ede8;
+    --muted:   #6b7a6b;
+    --mono:    'DM Mono', monospace;
+    --serif:   'Fraunces', serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 300;
+    color: var(--accent);
+  }
+  .logo span { color: var(--muted); font-style: italic; }
+  .user-btn {
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+  }
+
+  /* Main area */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 20px;
+    gap: 16px;
+  }
+
+  /* Capture buttons */
+  .capture-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    width: 100%;
+    max-width: 400px;
+  }
+  .capture-btn {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 32px 16px;
+    background: var(--surface);
+    border: 1.5px dashed var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+  .capture-btn:hover, .capture-btn:active {
+    border-color: var(--accent);
+    background: #1a2e1a22;
+  }
+  .capture-btn input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+  .capture-icon {
+    font-size: 36px;
+    line-height: 1;
+  }
+  .capture-label {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    font-family: var(--mono);
+  }
+  .capture-label strong {
+    color: var(--text);
+    display: block;
+    margin-bottom: 2px;
+    font-size: 13px;
+  }
+
+  /* Status / results */
+  .status-area {
+    width: 100%;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .file-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } }
+  .file-icon { font-size: 20px; }
+  .file-info { flex: 1; overflow: hidden; }
+  .file-name {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-status {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .file-status.ok { color: var(--accent); }
+  .file-status.dup { color: var(--accent2); }
+  .file-status.err { color: var(--warn); }
+  .file-status.processing { color: var(--accent2); }
+
+  .spinner-sm {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent2);
+    border-top-color: transparent;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Preview overlay */
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 100;
+    overflow-y: auto;
+    padding: 20px;
+  }
+  .overlay.show { display: flex; flex-direction: column; align-items: center; }
+  .preview-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 420px;
+    padding: 20px;
+    animation: fadeIn 0.3s ease;
+  }
+  .preview-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .preview-proveedor {
+    font-family: var(--serif);
+    font-size: 16px;
+    font-weight: 300;
+  }
+  .preview-total {
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--accent);
+    text-align: right;
+  }
+  .preview-total.neg { color: var(--warn); }
+  .preview-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .pf { display: flex; flex-direction: column; gap: 3px; }
+  .pf.full { grid-column: 1/-1; }
+  .pf label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .pf input, .pf select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 7px 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .pf input:focus, .pf select:focus { outline: none; border-color: var(--accent); }
+  .preview-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .btn-confirm { background: var(--accent); color: #0d1a0d; }
+  .btn-confirm:hover { background: #d0ffb0; }
+  .btn-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-skip { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-skip:hover { color: var(--text); border-color: var(--muted); }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 500;
+  }
+  .badge-ok { background: #1a3a1a; color: var(--accent); }
+  .badge-dup { background: #3a3a1a; color: var(--accent2); }
+  .badge-warn { background: #3a2a1a; color: var(--warn); }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 12px;
+    z-index: 200;
+    transition: transform 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 90vw;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.ok { border-color: var(--accent); }
+  .toast.err { border-color: var(--warn); }
+
+  /* Counter */
+  .counter {
+    text-align: center;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  .counter strong { color: var(--accent); font-size: 13px; }
+
+  /* Link to full dashboard */
+  .dash-link {
+    text-align: center;
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .dash-link a {
+    color: var(--muted);
+    font-size: 11px;
+    text-decoration: none;
+  }
+  .dash-link a:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">COCICP <span>captura</span></div>
+  <button class="user-btn" id="user-btn" onclick="toggleUser()">david</button>
+</header>
+
+<div class="main">
+  <div class="capture-grid">
+    <div class="capture-btn" onclick="document.getElementById('camera-input').click()">
+      <div class="capture-icon">📷</div>
+      <div class="capture-label">
+        <strong>Tomar foto</strong>
+        Cámara
+      </div>
+    </div>
+    <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none" onchange="handleFiles(this.files)">
+    <div class="capture-btn">
+      <input type="file" accept="image/*,.pdf,application/pdf" multiple
+             onchange="handleFiles(this.files)">
+      <div class="capture-icon">📎</div>
+      <div class="capture-label">
+        <strong>Adjuntar</strong>
+        Imagen o PDF
+      </div>
+    </div>
+  </div>
+
+  <div class="status-area" id="status-area"></div>
+
+  <div class="counter" id="counter" style="display:none">
+    Hoy: <strong id="counter-num">0</strong> gastos registrados
+  </div>
+</div>
+
+<!-- Preview overlay -->
+<div class="overlay" id="overlay">
+  <div class="preview-card">
+    <div class="preview-top">
+      <div>
+        <div class="preview-proveedor" id="pv-proveedor">—</div>
+        <span class="badge badge-ok" id="pv-badge">OK</span>
+      </div>
+      <div class="preview-total" id="pv-total">$0</div>
+    </div>
+    <div class="preview-fields">
+      <div class="pf">
+        <label>Fecha</label>
+        <input type="date" id="pv-fecha">
+      </div>
+      <div class="pf">
+        <label>No. Documento</label>
+        <input type="text" id="pv-numdoc">
+      </div>
+      <div class="pf">
+        <label>NIT</label>
+        <input type="text" id="pv-nit">
+      </div>
+      <div class="pf">
+        <label>Categoría</label>
+        <select id="pv-cat">
+          <option>Alimentación</option>
+          <option>Alimentación/Viáticos</option>
+          <option>Mercado/Aseo</option>
+          <option>Combustible</option>
+          <option>Educación hijos</option>
+          <option>Honorarios Médicos</option>
+          <option>Prestadores de servicios</option>
+          <option>Seguridad Social</option>
+          <option>Impuestos vehículos</option>
+          <option>Gastos Administrativos</option>
+          <option>Transporte Aéreo</option>
+          <option>Alojamiento</option>
+          <option>Salud</option>
+          <option>Tecnología</option>
+          <option>Libros</option>
+          <option>Personal</option>
+          <option>Misceláneos</option>
+          <option>Vivienda</option>
+          <option>Pagos David Duque</option>
+          <option>Parqueadero</option>
+        </select>
+      </div>
+      <div class="pf full">
+        <label>Concepto</label>
+        <input type="text" id="pv-concepto">
+      </div>
+      <div class="pf">
+        <label>Medio de pago</label>
+        <input type="text" id="pv-medio">
+      </div>
+      <div class="pf">
+        <label>Referencia</label>
+        <input type="text" id="pv-ref">
+      </div>
+    </div>
+    <div class="preview-actions">
+      <button class="btn btn-skip" onclick="skipPreview()">Descartar</button>
+      <button class="btn btn-confirm" id="pv-confirm" onclick="confirmPreview()">
+        Confirmar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <span id="toast-icon">✓</span>
+  <span id="toast-msg"></span>
+</div>
+
+<div class="dash-link">
+  <a href="/">Ver dashboard completo</a>
+</div>
+
+<script>
+const WORKER_URL = 'https://cocicp-gastos.ddropero.workers.dev';
+let usuario = 'david';
+let previewQueue = [];
+let currentPreview = null;
+let todayCount = 0;
+
+const fmt = n => new Intl.NumberFormat('es-CO', {
+  style: 'currency', currency: 'COP', maximumFractionDigits: 0
+}).format(n);
+
+function toggleUser() {
+  usuario = usuario === 'david' ? 'andrea' : 'david';
+  document.getElementById('user-btn').textContent = usuario;
+}
+
+function toast(msg, type = 'ok') {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-icon').textContent = type === 'ok' ? '✓' : '✕';
+  document.getElementById('toast-msg').textContent = msg;
+  t.className = `toast show ${type}`;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ── Handle files ──
+async function handleFiles(files) {
+  if (!files.length) return;
+  const fileList = Array.from(files);
+  const area = document.getElementById('status-area');
+
+  // Create cards for each file
+  const cards = fileList.map((f, i) => {
+    const card = document.createElement('div');
+    card.className = 'file-card';
+    card.id = `fcard-${Date.now()}-${i}`;
+    const shortName = f.name.length > 30 ? f.name.slice(0,27) + '...' : f.name;
+    card.innerHTML = `
+      <div class="spinner-sm"></div>
+      <div class="file-info">
+        <div class="file-name">${shortName}</div>
+        <div class="file-status processing">Procesando con 3 agentes...</div>
+      </div>
+    `;
+    area.prepend(card);
+    return card;
+  });
+
+  let duplicados = 0;
+
+  const promises = fileList.map(async (file, i) => {
+    const card = cards[i];
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('usuario', usuario);
+
+      const res = await fetch(`${WORKER_URL}/api/upload`, { method: 'POST', body: form });
+      const data = await res.json();
+
+      if (!data.ok) {
+        card.querySelector('.spinner-sm').remove();
+        card.querySelector('.file-icon')?.remove();
+        card.innerHTML = `<div class="file-icon">✕</div>
+          <div class="file-info">
+            <div class="file-name">${file.name}</div>
+            <div class="file-status err">${data.error || 'Error'}</div>
+          </div>`;
+        return;
+      }
+
+      // Duplicado: descartar
+      if (data.preview.es_posible_duplicado) {
+        duplicados++;
+        card.innerHTML = `<div class="file-icon">⊘</div>
+          <div class="file-info">
+            <div class="file-name">${file.name}</div>
+            <div class="file-status dup">Duplicado — descartado</div>
+          </div>`;
+        // Auto-remove after 3s
+        setTimeout(() => card.remove(), 3000);
+        return;
+      }
+
+      // Success: queue for preview
+      card.innerHTML = `<div class="file-icon">✓</div>
+        <div class="file-info">
+          <div class="file-name">${file.name}</div>
+          <div class="file-status ok">${data.preview.proveedor_nombre} · ${fmt(data.preview.total)}</div>
+        </div>`;
+      previewQueue.push({ preview: data.preview, card });
+
+    } catch (err) {
+      card.innerHTML = `<div class="file-icon">✕</div>
+        <div class="file-info">
+          <div class="file-name">${file.name}</div>
+          <div class="file-status err">Error de conexión</div>
+        </div>`;
+    }
+  });
+
+  await Promise.all(promises);
+
+  if (duplicados > 0) {
+    toast(`${duplicados} duplicado${duplicados > 1 ? 's' : ''} descartado${duplicados > 1 ? 's' : ''}`, 'err');
+  }
+
+  // Show first preview
+  showNext();
+
+  // Reset inputs so same files can be re-selected
+  document.querySelectorAll('input[type=file]').forEach(i => i.value = '');
+}
+
+// ── Preview flow ──
+function showNext() {
+  if (previewQueue.length === 0) return;
+  const { preview, card } = previewQueue.shift();
+  currentPreview = { preview, card };
+
+  const p = preview;
+  document.getElementById('pv-proveedor').textContent = p.proveedor_nombre || '—';
+  const totalEl = document.getElementById('pv-total');
+  totalEl.textContent = fmt(p.total);
+  totalEl.className = 'preview-total' + (p.total < 0 ? ' neg' : '');
+
+  document.getElementById('pv-fecha').value = p.fecha || '';
+  document.getElementById('pv-numdoc').value = p.numero_documento || '';
+  document.getElementById('pv-nit').value = p.proveedor_nit || '';
+  document.getElementById('pv-concepto').value = p.concepto || '';
+  document.getElementById('pv-medio').value = p.medio_pago || '';
+  document.getElementById('pv-ref').value = p.referencia_pago || '';
+
+  const catSel = document.getElementById('pv-cat');
+  for (let opt of catSel.options) {
+    if (opt.value === p.categoria) { opt.selected = true; break; }
+  }
+
+  const badge = document.getElementById('pv-badge');
+  if (p.estado === 'revision') {
+    badge.textContent = 'Revisar';
+    badge.className = 'badge badge-warn';
+  } else {
+    badge.textContent = 'OK';
+    badge.className = 'badge badge-ok';
+  }
+
+  const qLen = previewQueue.length;
+  document.getElementById('pv-confirm').textContent =
+    qLen > 0 ? `Confirmar (${qLen} más)` : 'Confirmar';
+
+  document.getElementById('overlay').classList.add('show');
+}
+
+async function confirmPreview() {
+  if (!currentPreview) return;
+  const btn = document.getElementById('pv-confirm');
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+
+  const p = currentPreview.preview;
+  const body = {
+    ...p,
+    fecha:            document.getElementById('pv-fecha').value,
+    numero_documento: document.getElementById('pv-numdoc').value,
+    proveedor_nit:    document.getElementById('pv-nit').value,
+    concepto:         document.getElementById('pv-concepto').value,
+    categoria:        document.getElementById('pv-cat').value,
+    medio_pago:       document.getElementById('pv-medio').value,
+    referencia_pago:  document.getElementById('pv-ref').value,
+    usuario
+  };
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+
+    if (data.ok) {
+      toast(`#${data.numero} guardado`);
+      todayCount++;
+      updateCounter();
+      // Update card status
+      if (currentPreview.card) {
+        const st = currentPreview.card.querySelector('.file-status');
+        if (st) { st.textContent = `Guardado #${data.numero}`; st.className = 'file-status ok'; }
+      }
+    } else {
+      toast(data.error || 'Error', 'err');
+      if (data.duplicado && currentPreview.card) {
+        const st = currentPreview.card.querySelector('.file-status');
+        if (st) { st.textContent = 'Duplicado'; st.className = 'file-status dup'; }
+      }
+    }
+  } catch (err) {
+    toast('Error: ' + err.message, 'err');
+  }
+
+  btn.disabled = false;
+  closeAndNext();
+}
+
+function skipPreview() {
+  if (currentPreview?.card) {
+    const st = currentPreview.card.querySelector('.file-status');
+    if (st) { st.textContent = 'Descartado'; st.className = 'file-status dup'; }
+  }
+  closeAndNext();
+}
+
+function closeAndNext() {
+  document.getElementById('overlay').classList.remove('show');
+  currentPreview = null;
+  setTimeout(() => showNext(), 300);
+}
+
+function updateCounter() {
+  const el = document.getElementById('counter');
+  el.style.display = '';
+  document.getElementById('counter-num').textContent = todayCount;
+}
+</script>
+</body>
+</html>
