@@ -7,10 +7,12 @@
 import { runAgent1 } from './agent1-fiscal.js';
 import { runAgent2 } from './agent2-provider.js';
 import { runAgent3 } from './agent3-classification.js';
+import { checkRecurrentes } from './recurrentes.js';
+import { generateReport } from './report-pdf.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400'
 };
@@ -110,6 +112,52 @@ async function checkDuplicate(db, numeroDocumento, total, fecha, proveedorNit) {
   return null;
 }
 
+// ── Formato COP sin decimales ───────────────────────────────
+function formatCOP(value) {
+  if (!value && value !== 0) return '0';
+  return Math.round(Math.abs(value)).toLocaleString('es-CO');
+}
+
+// ── Enviar respuesta por WhatsApp via Twilio REST API ───────
+async function sendWhatsAppReply(env, to, message) {
+  const twilioSid   = env.TWILIO_ACCOUNT_SID;
+  const twilioToken = env.TWILIO_AUTH_TOKEN;
+
+  if (!twilioSid || !twilioToken) {
+    console.error('Twilio credentials not configured');
+    return;
+  }
+
+  const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`;
+  const basicAuth = btoa(`${twilioSid}:${twilioToken}`);
+
+  // El numero "From" de Twilio Sandbox o numero comprado
+  const twilioFrom = env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886';
+
+  const params = new URLSearchParams();
+  params.append('From', twilioFrom);
+  params.append('To', to);
+  params.append('Body', message);
+
+  try {
+    const res = await fetch(twilioUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${basicAuth}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('Twilio send error:', res.status, err);
+    }
+  } catch (err) {
+    console.error('Twilio fetch error:', err);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 export default {
   async fetch(request, env) {
@@ -149,6 +197,39 @@ export default {
         const dup = await checkDuplicate(env.DB, preview.numero_documento, preview.total, preview.fecha, preview.proveedor_nit);
         preview.es_posible_duplicado = !!dup;
         preview.duplicado_info = dup;
+
+        // ── Auto-confirm: proveedor conocido + confianza alta + sin duplicado + total positivo ──
+        const wantsAuto = form.get('auto_confirm') === '1';
+        if (wantsAuto
+            && preview.en_catalogo === true
+            && preview.confianza_global === 'alta'
+            && !preview.es_posible_duplicado
+            && preview.total > 0) {
+
+          const maxRow = await env.DB.prepare('SELECT MAX(numero) as max FROM gastos').first();
+          const numero = (maxRow?.max || 0) + 1;
+
+          await env.DB.prepare(`
+            INSERT INTO gastos
+              (numero, fecha, proveedor_nit, proveedor_nombre, numero_documento,
+               concepto, categoria, valor_base, iva, inc, otros_impuestos,
+               total, es_nota_credito, medio_pago, referencia_pago,
+               archivo_r2, usuario, estado, notas)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).bind(
+            numero, preview.fecha, preview.proveedor_nit, preview.proveedor_nombre,
+            preview.numero_documento, preview.concepto, preview.categoria,
+            preview.valor_base || 0, preview.iva || 0, preview.inc || 0,
+            preview.otros_impuestos || 0, preview.total,
+            preview.es_nota_credito ? 1 : 0,
+            preview.medio_pago, preview.referencia_pago,
+            preview.archivo_r2, preview.usuario || 'david',
+            'confirmado', preview.notas || null
+          ).run();
+
+          preview.auto_confirmado = true;
+          return json({ ok: true, preview, auto_confirmado: true, numero });
+        }
 
         return json({ ok: true, preview });
       } catch (err) {
@@ -405,6 +486,862 @@ export default {
             'Cache-Control': 'public, max-age=86400'
           }
         });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── GET /api/reporte ───────────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/reporte') {
+      try {
+        const p     = url.searchParams;
+        const desde = p.get('desde') || '2026-01-01';
+        const hasta = p.get('hasta') || '2026-12-31';
+
+        const result = await env.DB.prepare(
+          'SELECT * FROM gastos WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC, id DESC'
+        ).bind(desde, hasta).all();
+
+        const registros = result.results || [];
+
+        const { generateReport } = await import('./report-pdf.js');
+        const pdfBytes = generateReport(registros, desde, hasta);
+
+        return new Response(pdfBytes, {
+          headers: {
+            ...CORS_HEADERS,
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="COCICP_Reporte_${desde}_${hasta}.pdf"`,
+            'Cache-Control': 'no-cache'
+          }
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── GET /api/recurrentes ─────────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/recurrentes') {
+      try {
+        const p    = url.searchParams;
+        const mes  = parseInt(p.get('mes'))  || new Date().getMonth() + 1;
+        const anio = parseInt(p.get('anio')) || new Date().getFullYear();
+        const result = await checkRecurrentes(env.DB, mes, anio);
+        return json({ ok: true, ...result });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── POST /api/cruce-banco ──────────────────────────────────
+    // Receives bank statement movements, crosses against gastos in D1
+    if (request.method === 'POST' && url.pathname === '/api/cruce-banco') {
+      try {
+        const { movimientos } = await request.json();
+        if (!movimientos || !Array.isArray(movimientos)) {
+          return json({ error: 'Se espera { movimientos: [{fecha, descripcion, valor, referencia}] }' }, 400);
+        }
+
+        // Fetch all gastos for crossing
+        const existentes = await env.DB.prepare(
+          'SELECT id, numero, numero_documento, proveedor_nit, proveedor_nombre, fecha, total, concepto, categoria, referencia_pago, medio_pago, estado FROM gastos'
+        ).all();
+        const dbRows = existentes.results || [];
+
+        // Build lookup indexes
+        const porReferencia = {};
+        const porFechaTotal = {};
+        const porFechaTotalAprox = {};
+        const gastosUsados = new Set();
+
+        dbRows.forEach(r => {
+          if (r.referencia_pago) {
+            const refKey = r.referencia_pago.trim().toUpperCase();
+            if (!porReferencia[refKey]) porReferencia[refKey] = [];
+            porReferencia[refKey].push(r);
+          }
+
+          const totalAbs = Math.round(Math.abs(r.total));
+          const keyExacto = `${r.fecha}|${totalAbs}`;
+          if (!porFechaTotal[keyExacto]) porFechaTotal[keyExacto] = [];
+          porFechaTotal[keyExacto].push(r);
+
+          if (!porFechaTotalAprox[totalAbs]) porFechaTotalAprox[totalAbs] = [];
+          porFechaTotalAprox[totalAbs].push(r);
+        });
+
+        const conciliados = [];
+        const sinSoporte = [];
+
+        for (const mov of movimientos) {
+          const movRef = (mov.referencia || '').trim().toUpperCase();
+          const movFecha = mov.fecha || null;
+          const movValor = Math.round(Math.abs(parseFloat(mov.valor) || 0));
+          const movDesc = (mov.descripcion || '').trim();
+
+          let match = null;
+          let metodo = '';
+
+          // Match 1: by referencia_pago (strongest match)
+          if (movRef && !match) {
+            const candidates = porReferencia[movRef];
+            if (candidates) {
+              for (const c of candidates) {
+                if (!gastosUsados.has(c.id)) {
+                  match = c;
+                  metodo = 'referencia';
+                  break;
+                }
+              }
+            }
+          }
+
+          // Match 1b: referencia contained in description or vice-versa
+          if (!match && movRef) {
+            for (const r of dbRows) {
+              if (gastosUsados.has(r.id)) continue;
+              if (r.referencia_pago) {
+                const rRef = r.referencia_pago.trim().toUpperCase();
+                if (movDesc.toUpperCase().includes(rRef) || movRef.includes(rRef)) {
+                  if (Math.round(Math.abs(r.total)) === movValor) {
+                    match = r;
+                    metodo = 'referencia_parcial';
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          // Match 2: by fecha + total exacto
+          if (!match && movFecha && movValor) {
+            const keyExacto = `${movFecha}|${movValor}`;
+            const candidates = porFechaTotal[keyExacto];
+            if (candidates) {
+              for (const c of candidates) {
+                if (!gastosUsados.has(c.id)) {
+                  match = c;
+                  metodo = 'fecha_total';
+                  break;
+                }
+              }
+            }
+          }
+
+          // Match 3: by total + fecha approximate (+/- 2 days)
+          if (!match && movFecha && movValor) {
+            const candidates = porFechaTotalAprox[movValor];
+            if (candidates) {
+              const movDate = new Date(movFecha + 'T00:00:00');
+              for (const c of candidates) {
+                if (gastosUsados.has(c.id)) continue;
+                const cDate = new Date(c.fecha + 'T00:00:00');
+                const diffDays = Math.abs((movDate - cDate) / 86400000);
+                if (diffDays <= 2) {
+                  match = c;
+                  metodo = 'fecha_aprox_total';
+                  break;
+                }
+              }
+            }
+          }
+
+          if (match) {
+            gastosUsados.add(match.id);
+            conciliados.push({
+              movimiento: mov,
+              gasto: {
+                id: match.id,
+                numero: match.numero,
+                proveedor_nombre: match.proveedor_nombre,
+                concepto: match.concepto,
+                categoria: match.categoria,
+                total: match.total,
+                fecha: match.fecha,
+                numero_documento: match.numero_documento,
+                referencia_pago: match.referencia_pago,
+                estado: match.estado
+              },
+              metodo_match: metodo
+            });
+          } else {
+            sinSoporte.push(mov);
+          }
+        }
+
+        // Gastos that exist in system but have no bank match
+        const soloEnSistema = dbRows
+          .filter(r => !gastosUsados.has(r.id))
+          .filter(r => {
+            if (!movimientos.length) return false;
+            const fechas = movimientos.map(m => m.fecha).filter(Boolean).sort();
+            if (!fechas.length) return false;
+            const minFecha = fechas[0];
+            const maxFecha = fechas[fechas.length - 1];
+            return r.fecha >= minFecha && r.fecha <= maxFecha;
+          })
+          .map(r => ({
+            id: r.id,
+            numero: r.numero,
+            proveedor_nombre: r.proveedor_nombre,
+            concepto: r.concepto,
+            categoria: r.categoria,
+            total: r.total,
+            fecha: r.fecha,
+            numero_documento: r.numero_documento,
+            estado: r.estado
+          }));
+
+        return json({
+          ok: true,
+          total_movimientos: movimientos.length,
+          total_conciliados: conciliados.length,
+          total_sin_soporte: sinSoporte.length,
+          total_solo_en_sistema: soloEnSistema.length,
+          conciliados,
+          sin_soporte: sinSoporte,
+          solo_en_sistema: soloEnSistema
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── GET /api/tendencias ────────────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/tendencias') {
+      try {
+        const meses = parseInt(url.searchParams.get('meses') || '6');
+        const limit = Math.min(Math.max(meses, 1), 24);
+
+        const result = await env.DB.prepare(`
+          SELECT strftime('%Y-%m', fecha) as mes,
+                 categoria,
+                 SUM(total) as total
+          FROM gastos
+          WHERE fecha >= date('now', '-${limit} months')
+          GROUP BY mes, categoria
+          ORDER BY mes
+        `).all();
+
+        const rows = result.results || [];
+
+        // Agrupar por mes
+        const mesesMap = {};
+        for (const row of rows) {
+          if (!mesesMap[row.mes]) {
+            mesesMap[row.mes] = { mes: row.mes, total: 0, categorias: {} };
+          }
+          mesesMap[row.mes].categorias[row.categoria] = row.total;
+          mesesMap[row.mes].total += row.total;
+        }
+
+        // Ordenar cronologicamente
+        const mesesArr = Object.values(mesesMap).sort((a, b) => a.mes.localeCompare(b.mes));
+
+        return json({ ok: true, meses: mesesArr });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── GET /api/comparativo ───────────────────────────────────
+    // Compara dos meses: ?mes1=2026-03&mes2=2026-04
+    if (request.method === 'GET' && url.pathname === '/api/comparativo') {
+      try {
+        const mes1 = url.searchParams.get('mes1');
+        const mes2 = url.searchParams.get('mes2');
+        if (!mes1 || !mes2) return json({ error: 'Parámetros mes1 y mes2 requeridos (formato YYYY-MM)' }, 400);
+        if (!/^\d{4}-\d{2}$/.test(mes1) || !/^\d{4}-\d{2}$/.test(mes2)) {
+          return json({ error: 'Formato inválido. Usar YYYY-MM' }, 400);
+        }
+
+        const desde1 = `${mes1}-01`;
+        const hasta1 = `${mes1}-31`;
+        const desde2 = `${mes2}-01`;
+        const hasta2 = `${mes2}-31`;
+
+        const [r1, r2] = await Promise.all([
+          env.DB.prepare('SELECT categoria, SUM(total) as total, COUNT(*) as registros FROM gastos WHERE fecha BETWEEN ? AND ? GROUP BY categoria ORDER BY categoria')
+            .bind(desde1, hasta1).all(),
+          env.DB.prepare('SELECT categoria, SUM(total) as total, COUNT(*) as registros FROM gastos WHERE fecha BETWEEN ? AND ? GROUP BY categoria ORDER BY categoria')
+            .bind(desde2, hasta2).all()
+        ]);
+
+        const catMap = {};
+
+        // Acumular mes1
+        let granTotal1 = 0;
+        let totalReg1 = 0;
+        for (const row of (r1.results || [])) {
+          if (!catMap[row.categoria]) catMap[row.categoria] = { mes1: 0, mes2: 0, reg1: 0, reg2: 0 };
+          catMap[row.categoria].mes1 = row.total;
+          catMap[row.categoria].reg1 = row.registros;
+          granTotal1 += row.total;
+          totalReg1 += row.registros;
+        }
+
+        // Acumular mes2
+        let granTotal2 = 0;
+        let totalReg2 = 0;
+        for (const row of (r2.results || [])) {
+          if (!catMap[row.categoria]) catMap[row.categoria] = { mes1: 0, mes2: 0, reg1: 0, reg2: 0 };
+          catMap[row.categoria].mes2 = row.total;
+          catMap[row.categoria].reg2 = row.registros;
+          granTotal2 += row.total;
+          totalReg2 += row.registros;
+        }
+
+        // Construir array ordenado por diferencia absoluta desc
+        const categorias = Object.entries(catMap).map(([cat, v]) => {
+          const diff = v.mes2 - v.mes1;
+          const pct = v.mes1 !== 0 ? ((diff / Math.abs(v.mes1)) * 100) : (v.mes2 !== 0 ? 100 : 0);
+          return {
+            categoria: cat,
+            mes1: v.mes1,
+            mes2: v.mes2,
+            registros_mes1: v.reg1,
+            registros_mes2: v.reg2,
+            diferencia: diff,
+            porcentaje: Math.round(pct * 10) / 10
+          };
+        }).sort((a, b) => Math.abs(b.diferencia) - Math.abs(a.diferencia));
+
+        const diffTotal = granTotal2 - granTotal1;
+        const pctTotal = granTotal1 !== 0 ? Math.round(((diffTotal / Math.abs(granTotal1)) * 100) * 10) / 10 : 0;
+
+        return json({
+          ok: true,
+          mes1,
+          mes2,
+          resumen: {
+            total_mes1: granTotal1,
+            total_mes2: granTotal2,
+            diferencia: diffTotal,
+            porcentaje: pctTotal,
+            registros_mes1: totalReg1,
+            registros_mes2: totalReg2,
+            categorias_activas: categorias.length
+          },
+          categorias
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── GET /api/estado-mes ──────────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/estado-mes') {
+      try {
+        const mes  = parseInt(url.searchParams.get('mes'))  || new Date().getMonth() + 1;
+        const anio = parseInt(url.searchParams.get('anio')) || new Date().getFullYear();
+
+        const mesStr   = String(mes).padStart(2, '0');
+        const desde    = `${anio}-${mesStr}-01`;
+        const hastaDia = new Date(anio, mes, 0).getDate();
+        const hasta    = `${anio}-${mesStr}-${String(hastaDia).padStart(2, '0')}`;
+
+        // 1. Total gastos y monto del mes
+        const resumen = await env.DB.prepare(
+          'SELECT COUNT(*) as total_gastos, COALESCE(SUM(total),0) as total_monto FROM gastos WHERE fecha BETWEEN ? AND ?'
+        ).bind(desde, hasta).first();
+
+        // 2. Gastos en estado revision
+        const revision = await env.DB.prepare(
+          'SELECT COUNT(*) as count FROM gastos WHERE fecha BETWEEN ? AND ? AND estado = ?'
+        ).bind(desde, hasta, 'revision').first();
+
+        // 3. Días sin registro
+        const ultimoReg = await env.DB.prepare(
+          'SELECT fecha FROM gastos ORDER BY fecha DESC LIMIT 1'
+        ).first();
+
+        let dias_sin_registro = 0;
+        if (ultimoReg && ultimoReg.fecha) {
+          const ultimaFecha = new Date(ultimoReg.fecha + 'T12:00:00');
+          const hoy = new Date();
+          hoy.setHours(12, 0, 0, 0);
+          dias_sin_registro = Math.floor((hoy - ultimaFecha) / (1000 * 60 * 60 * 24));
+          if (dias_sin_registro < 0) dias_sin_registro = 0;
+        }
+
+        // 4. Recurrentes faltantes
+        const RECURRENTES = [
+          { nit_prefix: '901423905', nombre: 'Liceo Frances',      categoria: 'Educacion hijos' },
+          { nit_prefix: '800155413', nombre: 'Accion Fiduciaria',  categoria: 'Vivienda' },
+          { nit_prefix: '9998600669427', nombre: 'miplanilla',     categoria: 'Seguridad Social' },
+          { nit_prefix: '902029628', nombre: 'Laura Anaya',        categoria: 'Honorarios Medicos' }
+        ];
+
+        const recurrentes_faltantes = [];
+        for (const rec of RECURRENTES) {
+          const found = await env.DB.prepare(
+            "SELECT COUNT(*) as c FROM gastos WHERE fecha BETWEEN ? AND ? AND proveedor_nit LIKE ?"
+          ).bind(desde, hasta, rec.nit_prefix + '%').first();
+
+          if (!found || found.c === 0) {
+            recurrentes_faltantes.push({
+              nit: rec.nit_prefix,
+              nombre: rec.nombre,
+              categoria: rec.categoria
+            });
+          }
+        }
+
+        // 5. Construir alertas
+        const alertas = [];
+
+        if (revision.count > 0) {
+          alertas.push({
+            tipo: 'revision',
+            nivel: 'yellow',
+            mensaje: `${revision.count} gasto(s) en estado "revision" pendientes de confirmar`
+          });
+        }
+
+        if (recurrentes_faltantes.length > 0) {
+          const nombres = recurrentes_faltantes.map(r => r.nombre).join(', ');
+          alertas.push({
+            tipo: 'recurrentes',
+            nivel: recurrentes_faltantes.length >= 3 ? 'red' : 'yellow',
+            mensaje: `Falta(n) pago(s) recurrente(s): ${nombres}`
+          });
+        }
+
+        if (dias_sin_registro > 7) {
+          alertas.push({
+            tipo: 'inactividad',
+            nivel: dias_sin_registro > 14 ? 'red' : 'yellow',
+            mensaje: `${dias_sin_registro} dias sin registrar gastos (ultimo: ${ultimoReg?.fecha || 'N/A'})`
+          });
+        }
+
+        if (resumen.total_gastos === 0) {
+          alertas.push({
+            tipo: 'vacio',
+            nivel: 'red',
+            mensaje: `Sin gastos registrados en ${mesStr}/${anio}`
+          });
+        }
+
+        // Nivel global
+        let nivel_global = 'green';
+        if (alertas.some(a => a.nivel === 'red')) nivel_global = 'red';
+        else if (alertas.some(a => a.nivel === 'yellow')) nivel_global = 'yellow';
+
+        return json({
+          mes,
+          anio,
+          total_gastos: resumen.total_gastos,
+          total_monto: resumen.total_monto,
+          gastos_en_revision: revision.count,
+          recurrentes_faltantes,
+          dias_sin_registro,
+          alertas,
+          nivel_global
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── GET /api/whatsapp/webhook — Verificacion Twilio ────────
+    if (request.method === 'GET' && url.pathname === '/api/whatsapp/webhook') {
+      return new Response('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } });
+    }
+
+    // ── POST /api/whatsapp/webhook — Recibir mensaje WhatsApp ──
+    if (request.method === 'POST' && url.pathname === '/api/whatsapp/webhook') {
+      try {
+        // Twilio envia application/x-www-form-urlencoded
+        const formData = await request.formData();
+
+        const from       = formData.get('From')      || '';
+        const body       = formData.get('Body')       || '';
+        const numMedia   = parseInt(formData.get('NumMedia') || '0');
+        const mediaUrl   = formData.get('MediaUrl0')  || null;
+        const mediaType  = formData.get('MediaContentType0') || null;
+
+        // Determinar usuario por numero de telefono
+        const NUMEROS_AUTORIZADOS = {
+          'whatsapp:+573001234567': 'david',
+          'whatsapp:+573009876543': 'andrea',
+        };
+        const usuario = NUMEROS_AUTORIZADOS[from];
+
+        if (!usuario) {
+          await sendWhatsAppReply(
+            env, from,
+            'No autorizado. Contacte al administrador de COCICP.'
+          );
+          return new Response('<Response></Response>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' }
+          });
+        }
+
+        // Sin imagen adjunta
+        if (numMedia === 0 || !mediaUrl) {
+          await sendWhatsAppReply(
+            env, from,
+            'Envie una foto o PDF de la factura para registrar el gasto.'
+          );
+          return new Response('<Response></Response>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' }
+          });
+        }
+
+        // --- Descargar imagen desde Twilio con Basic Auth ---
+        const twilioSid   = env.TWILIO_ACCOUNT_SID;
+        const twilioToken = env.TWILIO_AUTH_TOKEN;
+        const basicAuth   = btoa(`${twilioSid}:${twilioToken}`);
+
+        const mediaRes = await fetch(mediaUrl, {
+          headers: { 'Authorization': `Basic ${basicAuth}` }
+        });
+
+        if (!mediaRes.ok) {
+          await sendWhatsAppReply(env, from, 'Error descargando imagen. Intente de nuevo.');
+          return new Response('<Response></Response>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' }
+          });
+        }
+
+        const mediaBuf   = await mediaRes.arrayBuffer();
+        const mediaBytes = new Uint8Array(mediaBuf);
+        let binary = '';
+        for (let i = 0; i < mediaBytes.length; i++) {
+          binary += String.fromCharCode(mediaBytes[i]);
+        }
+        const b64 = btoa(binary);
+
+        const mimeType = mediaType || 'image/jpeg';
+
+        // --- Guardar en R2 ---
+        const timestamp = Date.now();
+        const ext = mimeType.includes('pdf') ? 'pdf'
+                  : mimeType.includes('png') ? 'png' : 'jpg';
+        const r2Key = `soportes/wa-${timestamp}.${ext}`;
+        const r2Promise = env.BUCKET.put(r2Key, mediaBuf, {
+          httpMetadata: { contentType: mimeType }
+        });
+
+        // --- Correr 3 agentes en paralelo ---
+        const apiKey = env.ANTHROPIC_API_KEY;
+        const [a1, a2, a3] = await Promise.all([
+          runAgent1(b64, mimeType, apiKey),
+          runAgent2(b64, mimeType, env.DB, apiKey),
+          runAgent3(b64, mimeType, apiKey)
+        ]);
+
+        await r2Promise;
+
+        // --- Merge ---
+        const preview = mergeAgents(a1, a2, a3, usuario);
+        preview.archivo_r2 = r2Key;
+        preview.origen = 'whatsapp';
+
+        // --- Verificar duplicado ---
+        const dup = await checkDuplicate(
+          env.DB,
+          preview.numero_documento,
+          preview.total,
+          preview.fecha,
+          preview.proveedor_nit
+        );
+
+        if (dup) {
+          const r = dup.registro;
+          await sendWhatsAppReply(
+            env, from,
+            `Duplicado: ya existe #${r.numero} (${r.proveedor_nombre}) $${formatCOP(r.total)}`
+          );
+          return new Response('<Response></Response>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' }
+          });
+        }
+
+        // --- Decidir: auto-confirmar o enviar a revision ---
+        const esConfiable = preview.confianza_global !== 'baja'
+                         && preview.en_catalogo
+                         && !preview.errores_parciales
+                         && preview.total > 0;
+
+        let replyMsg;
+
+        if (esConfiable) {
+          const maxRow = await env.DB.prepare(
+            'SELECT MAX(numero) as max FROM gastos'
+          ).first();
+          const numero = (maxRow?.max || 0) + 1;
+
+          await env.DB.prepare(`
+            INSERT INTO gastos
+              (numero, fecha, proveedor_nit, proveedor_nombre, numero_documento,
+               concepto, categoria, valor_base, iva, inc, otros_impuestos,
+               total, es_nota_credito, medio_pago, referencia_pago,
+               archivo_r2, usuario, estado, notas)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).bind(
+            numero,
+            preview.fecha,
+            preview.proveedor_nit,
+            preview.proveedor_nombre,
+            preview.numero_documento,
+            preview.concepto,
+            preview.categoria,
+            preview.valor_base || 0,
+            preview.iva || 0,
+            preview.inc || 0,
+            preview.otros_impuestos || 0,
+            preview.total,
+            preview.es_nota_credito ? 1 : 0,
+            preview.medio_pago,
+            preview.referencia_pago,
+            r2Key,
+            usuario,
+            'confirmado',
+            'Registrado via WhatsApp'
+          ).run();
+
+          replyMsg = [
+            `\u2713 #${numero}`,
+            preview.proveedor_nombre,
+            `$${formatCOP(preview.total)}`,
+            preview.categoria
+          ].join(' ');
+
+        } else {
+          const maxRow = await env.DB.prepare(
+            'SELECT MAX(numero) as max FROM gastos'
+          ).first();
+          const numero = (maxRow?.max || 0) + 1;
+
+          await env.DB.prepare(`
+            INSERT INTO gastos
+              (numero, fecha, proveedor_nit, proveedor_nombre, numero_documento,
+               concepto, categoria, valor_base, iva, inc, otros_impuestos,
+               total, es_nota_credito, medio_pago, referencia_pago,
+               archivo_r2, usuario, estado, notas)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).bind(
+            numero,
+            preview.fecha,
+            preview.proveedor_nit,
+            preview.proveedor_nombre || 'Desconocido',
+            preview.numero_documento,
+            preview.concepto,
+            preview.categoria,
+            preview.valor_base || 0,
+            preview.iva || 0,
+            preview.inc || 0,
+            preview.otros_impuestos || 0,
+            preview.total,
+            preview.es_nota_credito ? 1 : 0,
+            preview.medio_pago,
+            preview.referencia_pago,
+            r2Key,
+            usuario,
+            'revision',
+            'Requiere revision - registrado via WhatsApp'
+          ).run();
+
+          const frontendUrl = env.FRONTEND_URL || 'https://cocicp.davidduque.com';
+          replyMsg = [
+            `\u26a0\ufe0f Revisar:`,
+            preview.proveedor_nombre || 'Desconocido',
+            `$${formatCOP(preview.total)}`,
+            frontendUrl
+          ].join(' ');
+        }
+
+        // --- Responder por WhatsApp ---
+        await sendWhatsAppReply(env, from, replyMsg);
+
+        return new Response('<Response></Response>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/xml' }
+        });
+
+      } catch (err) {
+        console.error('WhatsApp webhook error:', err);
+        return new Response('<Response></Response>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/xml' }
+        });
+      }
+    }
+
+    // ── GET /api/obligaciones ───────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/obligaciones') {
+      try {
+        const tipo   = url.searchParams.get('tipo');
+        const activo = url.searchParams.get('activo');
+
+        let q = 'SELECT * FROM obligaciones WHERE 1=1';
+        const v = [];
+        if (tipo)   { q += ' AND tipo = ?';   v.push(tipo); }
+        if (activo !== null && activo !== undefined && activo !== '') {
+          q += ' AND activo = ?'; v.push(parseInt(activo));
+        }
+        q += ' ORDER BY tipo ASC, dia_limite ASC, nombre ASC';
+
+        const result = await env.DB.prepare(q).bind(...v).all();
+        return json({ ok: true, obligaciones: result.results || [] });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── GET /api/obligaciones/pendientes ─────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/obligaciones/pendientes') {
+      try {
+        const now   = new Date();
+        const mes   = parseInt(url.searchParams.get('mes'))  || (now.getMonth() + 1);
+        const anio  = parseInt(url.searchParams.get('anio')) || now.getFullYear();
+        const mesStr = String(mes).padStart(2, '0');
+        const desde  = `${anio}-${mesStr}-01`;
+        const hastaDia = new Date(anio, mes, 0).getDate();
+        const hasta  = `${anio}-${mesStr}-${String(hastaDia).padStart(2, '0')}`;
+        const hoy    = now.getDate();
+        const esMesActual = (mes === now.getMonth() + 1 && anio === now.getFullYear());
+
+        // Get active obligations (monthly ones always, annual only if current month matches logic)
+        const obligs = await env.DB.prepare(
+          'SELECT * FROM obligaciones WHERE activo = 1 ORDER BY tipo ASC, dia_limite ASC'
+        ).all();
+
+        // Get gastos of the month
+        const gastosRes = await env.DB.prepare(
+          'SELECT id, numero, proveedor_nit, proveedor_nombre, total, fecha, categoria FROM gastos WHERE fecha BETWEEN ? AND ?'
+        ).bind(desde, hasta).all();
+        const gastosMes = gastosRes.results || [];
+
+        const pendientes = [];
+        const pagadas = [];
+
+        for (const ob of (obligs.results || [])) {
+          // Skip annual obligations unless we specifically want to show them
+          if (ob.frecuencia === 'anual') {
+            // Only show annual in the month of dia_limite or if no dia_limite, show in January
+            const mesOblig = ob.dia_limite ? 1 : 1; // annual obligations show every month as reminder
+            // Actually, show annual obligations always — user decides
+          }
+
+          // Check if paid: match by proveedor_nit or proveedor_nombre LIKE
+          let pagado = null;
+          for (const g of gastosMes) {
+            if (ob.proveedor_nit && g.proveedor_nit) {
+              const obNitClean = ob.proveedor_nit.replace(/\D/g, '');
+              const gNitClean  = g.proveedor_nit.replace(/\D/g, '');
+              if (obNitClean && gNitClean && gNitClean.startsWith(obNitClean.slice(0, 9))) {
+                pagado = g;
+                break;
+              }
+            }
+            if (!pagado && ob.proveedor_nombre && g.proveedor_nombre) {
+              const obName = ob.proveedor_nombre.toLowerCase();
+              const gName  = g.proveedor_nombre.toLowerCase();
+              if (gName.includes(obName) || obName.includes(gName)) {
+                pagado = g;
+                break;
+              }
+            }
+            // Also try matching by obligation name against proveedor_nombre
+            if (!pagado && ob.nombre) {
+              const obNombre = ob.nombre.toLowerCase();
+              const gName = g.proveedor_nombre.toLowerCase();
+              if (gName.includes(obNombre) || obNombre.includes(gName)) {
+                pagado = g;
+                break;
+              }
+            }
+          }
+
+          const diaLimite = ob.dia_limite || 0;
+          const diasRestantes = esMesActual ? (diaLimite - hoy) : null;
+          const vencido = esMesActual && diaLimite > 0 && hoy > diaLimite;
+
+          const item = {
+            ...ob,
+            dias_restantes: diasRestantes,
+            vencido: vencido && !pagado
+          };
+
+          if (pagado) {
+            pagadas.push({ ...item, gasto: pagado });
+          } else {
+            pendientes.push(item);
+          }
+        }
+
+        return json({
+          ok: true,
+          mes, anio,
+          pendientes,
+          pagadas,
+          total_pendientes: pendientes.length,
+          total_pagadas: pagadas.length
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── POST /api/obligaciones ──────────────────────────────
+    if (request.method === 'POST' && url.pathname === '/api/obligaciones') {
+      try {
+        const b = await request.json();
+        if (!b.nombre || !b.tipo || !b.frecuencia) {
+          return json({ error: 'nombre, tipo y frecuencia son requeridos' }, 400);
+        }
+
+        const result = await env.DB.prepare(`
+          INSERT INTO obligaciones (nombre, descripcion, tipo, categoria, proveedor_nit, proveedor_nombre, frecuencia, dia_limite, valor_estimado, medio_pago, notas)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        `).bind(
+          b.nombre, b.descripcion || null, b.tipo, b.categoria || null,
+          b.proveedor_nit || null, b.proveedor_nombre || null,
+          b.frecuencia, b.dia_limite || null, b.valor_estimado || null,
+          b.medio_pago || null, b.notas || null
+        ).run();
+
+        return json({ ok: true, id: result.meta?.last_row_id }, 201);
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── PUT /api/obligaciones/:id ───────────────────────────
+    if (request.method === 'PUT' && url.pathname.match(/^\/api\/obligaciones\/\d+$/)) {
+      try {
+        const id = parseInt(url.pathname.split('/').pop());
+        const b = await request.json();
+
+        const sets = [];
+        const vals = [];
+        const allowed = ['nombre','descripcion','tipo','categoria','proveedor_nit','proveedor_nombre','frecuencia','dia_limite','valor_estimado','medio_pago','activo','notas'];
+        for (const [k, v] of Object.entries(b)) {
+          if (allowed.includes(k)) { sets.push(`${k} = ?`); vals.push(v); }
+        }
+        if (!sets.length) return json({ error: 'Sin campos validos' }, 400);
+
+        vals.push(id);
+        await env.DB.prepare(`UPDATE obligaciones SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+        return json({ ok: true });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+    // ── DELETE /api/obligaciones/:id ────────────────────────
+    if (request.method === 'DELETE' && url.pathname.match(/^\/api\/obligaciones\/\d+$/)) {
+      try {
+        const id = parseInt(url.pathname.split('/').pop());
+        await env.DB.prepare('UPDATE obligaciones SET activo = 0 WHERE id = ?').bind(id).run();
+        return json({ ok: true });
       } catch (err) {
         return json({ error: err.message }, 500);
       }
