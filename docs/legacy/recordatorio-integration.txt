@@ -1,0 +1,396 @@
+================================================================================
+  COCICP Gastos — Sistema de Recordatorios DIAN
+  Integración completa: Worker endpoint + Frontend banner + CSS
+================================================================================
+
+
+================================================================================
+  1. WORKER — Nuevo endpoint GET /api/estado-mes
+================================================================================
+
+Agregar este bloque en worker.js ANTES de la línea:
+  return json({ error: 'Not found' }, 404);
+
+--- INICIO CÓDIGO WORKER ---
+
+    // ── GET /api/estado-mes ──────────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/estado-mes') {
+      try {
+        const mes  = parseInt(url.searchParams.get('mes'))  || new Date().getMonth() + 1;
+        const anio = parseInt(url.searchParams.get('anio')) || new Date().getFullYear();
+
+        const mesStr   = String(mes).padStart(2, '0');
+        const desde    = `${anio}-${mesStr}-01`;
+        const hastaDia = new Date(anio, mes, 0).getDate();
+        const hasta    = `${anio}-${mesStr}-${String(hastaDia).padStart(2, '0')}`;
+
+        // 1. Total gastos y monto del mes
+        const resumen = await env.DB.prepare(
+          'SELECT COUNT(*) as total_gastos, COALESCE(SUM(total),0) as total_monto FROM gastos WHERE fecha BETWEEN ? AND ?'
+        ).bind(desde, hasta).first();
+
+        // 2. Gastos en estado revision
+        const revision = await env.DB.prepare(
+          'SELECT COUNT(*) as count FROM gastos WHERE fecha BETWEEN ? AND ? AND estado = ?'
+        ).bind(desde, hasta, 'revision').first();
+
+        // 3. Días sin registro — último registro del mes (o general si no hay del mes)
+        const ultimoReg = await env.DB.prepare(
+          'SELECT fecha FROM gastos ORDER BY fecha DESC LIMIT 1'
+        ).first();
+
+        let dias_sin_registro = 0;
+        if (ultimoReg && ultimoReg.fecha) {
+          const ultimaFecha = new Date(ultimoReg.fecha + 'T12:00:00');
+          const hoy = new Date();
+          hoy.setHours(12, 0, 0, 0);
+          dias_sin_registro = Math.floor((hoy - ultimaFecha) / (1000 * 60 * 60 * 24));
+          if (dias_sin_registro < 0) dias_sin_registro = 0;
+        }
+
+        // 4. Recurrentes faltantes — NITs que deben aparecer cada mes
+        const RECURRENTES = [
+          { nit_prefix: '901423905', nombre: 'Liceo Frances',      categoria: 'Educacion hijos' },
+          { nit_prefix: '800155413', nombre: 'Accion Fiduciaria',  categoria: 'Vivienda' },
+          { nit_prefix: '9998600669427', nombre: 'miplanilla',     categoria: 'Seguridad Social' },
+          { nit_prefix: '902029628', nombre: 'Laura Anaya',        categoria: 'Honorarios Medicos' }
+        ];
+
+        const recurrentes_faltantes = [];
+        for (const rec of RECURRENTES) {
+          const found = await env.DB.prepare(
+            "SELECT COUNT(*) as c FROM gastos WHERE fecha BETWEEN ? AND ? AND proveedor_nit LIKE ?"
+          ).bind(desde, hasta, rec.nit_prefix + '%').first();
+
+          if (!found || found.c === 0) {
+            recurrentes_faltantes.push({
+              nit: rec.nit_prefix,
+              nombre: rec.nombre,
+              categoria: rec.categoria
+            });
+          }
+        }
+
+        // 5. Construir alertas
+        const alertas = [];
+
+        if (revision.count > 0) {
+          alertas.push({
+            tipo: 'revision',
+            nivel: 'yellow',
+            mensaje: `${revision.count} gasto(s) en estado "revision" pendientes de confirmar`
+          });
+        }
+
+        if (recurrentes_faltantes.length > 0) {
+          const nombres = recurrentes_faltantes.map(r => r.nombre).join(', ');
+          alertas.push({
+            tipo: 'recurrentes',
+            nivel: recurrentes_faltantes.length >= 3 ? 'red' : 'yellow',
+            mensaje: `Falta(n) pago(s) recurrente(s): ${nombres}`
+          });
+        }
+
+        if (dias_sin_registro > 7) {
+          alertas.push({
+            tipo: 'inactividad',
+            nivel: dias_sin_registro > 14 ? 'red' : 'yellow',
+            mensaje: `${dias_sin_registro} dias sin registrar gastos (ultimo: ${ultimoReg?.fecha || 'N/A'})`
+          });
+        }
+
+        if (resumen.total_gastos === 0) {
+          alertas.push({
+            tipo: 'vacio',
+            nivel: 'red',
+            mensaje: `Sin gastos registrados en ${mesStr}/${anio}`
+          });
+        }
+
+        // Nivel global: red si hay alguna roja, yellow si hay amarilla, green si limpio
+        let nivel_global = 'green';
+        if (alertas.some(a => a.nivel === 'red')) nivel_global = 'red';
+        else if (alertas.some(a => a.nivel === 'yellow')) nivel_global = 'yellow';
+
+        return json({
+          mes,
+          anio,
+          total_gastos: resumen.total_gastos,
+          total_monto: resumen.total_monto,
+          gastos_en_revision: revision.count,
+          recurrentes_faltantes,
+          dias_sin_registro,
+          alertas,
+          nivel_global
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+--- FIN CÓDIGO WORKER ---
+
+
+================================================================================
+  2. CSS — Estilos del banner de estado
+================================================================================
+
+Agregar estos estilos en el bloque <style> de index.html,
+despues de los estilos de .upload-bar (linea ~153).
+
+--- INICIO CSS ---
+
+  /* ── Estado mes banner ── */
+  .estado-banner {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    transition: all 0.3s ease;
+    position: relative;
+  }
+  .estado-banner.hidden { display: none; }
+  .estado-banner.green {
+    background: #0d1a0d;
+    border-left: 3px solid var(--accent);
+  }
+  .estado-banner.yellow {
+    background: #1a1a0d;
+    border-left: 3px solid var(--accent2);
+  }
+  .estado-banner.red {
+    background: #1a0d0d;
+    border-left: 3px solid var(--warn);
+  }
+  .estado-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .estado-resumen {
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+  .estado-resumen strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .estado-alertas {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+  .estado-alerta {
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .estado-alerta.yellow {
+    background: rgba(240, 224, 160, 0.12);
+    color: var(--accent2);
+    border: 1px solid rgba(240, 224, 160, 0.2);
+  }
+  .estado-alerta.red {
+    background: rgba(240, 176, 160, 0.12);
+    color: var(--warn);
+    border: 1px solid rgba(240, 176, 160, 0.2);
+  }
+  .estado-alerta.green {
+    background: rgba(184, 240, 160, 0.08);
+    color: var(--accent);
+    border: 1px solid rgba(184, 240, 160, 0.15);
+  }
+  .estado-dismiss {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .estado-dismiss:hover {
+    color: var(--text);
+    background: var(--border);
+  }
+
+--- FIN CSS ---
+
+
+================================================================================
+  3. HTML — Markup del banner
+================================================================================
+
+Agregar este bloque en index.html INMEDIATAMENTE DESPUES del cierre
+de .upload-bar (</div> de linea 484), ANTES de .processing-bar (linea 487).
+
+--- INICIO HTML ---
+
+    <!-- Estado mes DIAN banner -->
+    <div class="estado-banner hidden" id="estado-banner">
+      <span class="estado-icon" id="estado-icon"></span>
+      <span class="estado-resumen" id="estado-resumen"></span>
+      <div class="estado-alertas" id="estado-alertas"></div>
+      <button class="estado-dismiss" id="estado-dismiss" title="Ocultar este mes">&times;</button>
+    </div>
+
+--- FIN HTML ---
+
+
+================================================================================
+  4. JAVASCRIPT — Logica del banner
+================================================================================
+
+Agregar este bloque en la seccion <script> de index.html,
+ANTES del bloque DOMContentLoaded (linea ~691).
+
+--- INICIO JAVASCRIPT ---
+
+// ============================================================
+// Estado del mes — Recordatorios DIAN
+// ============================================================
+const WORKER_URL_ESTADO = 'https://cocicp-gastos.ddropero.workers.dev';
+
+function getEstadoDismissKey(mes, anio) {
+  return `cocicp_estado_dismiss_${anio}_${mes}`;
+}
+
+function isEstadoDismissed(mes, anio) {
+  try {
+    return localStorage.getItem(getEstadoDismissKey(mes, anio)) === '1';
+  } catch { return false; }
+}
+
+function dismissEstado(mes, anio) {
+  try {
+    localStorage.setItem(getEstadoDismissKey(mes, anio), '1');
+  } catch {}
+  const banner = document.getElementById('estado-banner');
+  if (banner) banner.classList.add('hidden');
+}
+
+function formatCOP(n) {
+  return '$' + Math.round(n).toLocaleString('es-CO');
+}
+
+async function loadEstadoMes() {
+  const hoy  = new Date();
+  const mes  = hoy.getMonth() + 1;
+  const anio = hoy.getFullYear();
+
+  // Si el usuario lo descarto este mes, no mostrar
+  if (isEstadoDismissed(mes, anio)) return;
+
+  const banner   = document.getElementById('estado-banner');
+  const icon     = document.getElementById('estado-icon');
+  const resumen  = document.getElementById('estado-resumen');
+  const alertas  = document.getElementById('estado-alertas');
+  const btnClose = document.getElementById('estado-dismiss');
+
+  if (!banner) return;
+
+  try {
+    const res = await fetch(`${WORKER_URL_ESTADO}/api/estado-mes?mes=${mes}&anio=${anio}`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Icono segun nivel
+    const iconMap = { green: '\u2714', yellow: '\u26A0', red: '\u2716' };
+    icon.textContent = iconMap[data.nivel_global] || '\u2714';
+
+    // Resumen breve
+    resumen.innerHTML =
+      `<strong>${data.total_gastos}</strong> gastos \u00B7 ${formatCOP(data.total_monto)}`;
+
+    // Alertas inline
+    alertas.innerHTML = '';
+    if (data.alertas && data.alertas.length > 0) {
+      data.alertas.forEach(a => {
+        const tag = document.createElement('span');
+        tag.className = `estado-alerta ${a.nivel}`;
+        tag.textContent = a.mensaje;
+        alertas.appendChild(tag);
+      });
+    } else {
+      const tag = document.createElement('span');
+      tag.className = 'estado-alerta green';
+      tag.textContent = 'Todo al dia';
+      alertas.appendChild(tag);
+    }
+
+    // Clase de color
+    banner.className = `estado-banner ${data.nivel_global}`;
+
+    // Dismiss handler
+    btnClose.onclick = () => dismissEstado(mes, anio);
+
+  } catch (err) {
+    // Silencioso — no romper el UI si falla
+    console.warn('estado-mes:', err.message);
+    return;
+  }
+}
+
+--- FIN JAVASCRIPT ---
+
+
+================================================================================
+  5. INIT — Llamar loadEstadoMes en DOMContentLoaded
+================================================================================
+
+Modificar el bloque DOMContentLoaded en index.html para agregar
+la llamada a loadEstadoMes(). Debe quedar asi:
+
+--- INICIO INIT ---
+
+document.addEventListener('DOMContentLoaded', () => {
+  setupDrop();
+  cargarGastos();
+  loadEstadoMes();
+});
+
+--- FIN INIT ---
+
+
+================================================================================
+  RESUMEN DE CAMBIOS
+================================================================================
+
+  Archivo           | Accion
+  ------------------|----------------------------------------------------------
+  worker.js         | Agregar endpoint GET /api/estado-mes (seccion 1)
+  index.html <style>| Agregar CSS del banner (seccion 2)
+  index.html <body> | Agregar div#estado-banner despues de .upload-bar (seccion 3)
+  index.html <script>| Agregar loadEstadoMes() y helpers (seccion 4)
+  index.html <script>| Agregar loadEstadoMes() al DOMContentLoaded (seccion 5)
+
+================================================================================
+  NOTAS
+================================================================================
+
+  - El banner se muestra debajo de la barra de upload.
+  - Colores: verde (sin alertas), amarillo (items pendientes),
+    rojo (items vencidos o multiples faltantes).
+  - El boton X descarta el banner para el mes actual via localStorage.
+    La key es cocicp_estado_dismiss_YYYY_M — se resetea cada mes nuevo.
+  - Los 4 NITs recurrentes monitoreados son:
+      901423905   Liceo Frances        (Educacion hijos)
+      800155413   Accion Fiduciaria    (Vivienda)
+      9998600669427 miplanilla         (Seguridad Social)
+      902029628   Laura Anaya          (Honorarios Medicos)
+  - El endpoint usa LIKE 'nit_prefix%' para matchear con o sin digito
+    de verificacion (ej: 901423905 matchea 901423905-4).
+  - Inactividad: amarillo >7 dias, rojo >14 dias sin registros.
+  - El fetch es silencioso — si el Worker no responde, el banner
+    simplemente no aparece (no rompe la UI).
+  - El endpoint no requiere autenticacion (igual que /api/gastos).
+  - Para probar localmente con wrangler dev:
+      curl "http://localhost:8787/api/estado-mes?mes=4&anio=2026"
+
+================================================================================

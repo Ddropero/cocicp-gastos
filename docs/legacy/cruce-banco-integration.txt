@@ -1,0 +1,451 @@
+// ============================================================
+// CRUCE BANCARIO — Integration Code
+// 3 pieces: (1) Worker endpoint, (2) Frontend JS, (3) HTML
+// ============================================================
+
+
+// ════════════════════════════════════════════════════════════
+// PIECE 1: WORKER ENDPOINT
+// Add this block in worker.js BEFORE the final "return json({ error: 'Not found' }, 404);"
+// ════════════════════════════════════════════════════════════
+
+    // ── POST /api/cruce-banco ──────────────────────────────────
+    // Receives bank statement movements, crosses against gastos in D1
+    if (request.method === 'POST' && url.pathname === '/api/cruce-banco') {
+      try {
+        const { movimientos } = await request.json();
+        if (!movimientos || !Array.isArray(movimientos)) {
+          return json({ error: 'Se espera { movimientos: [{fecha, descripcion, valor, referencia}] }' }, 400);
+        }
+
+        // Fetch all gastos for crossing
+        const existentes = await env.DB.prepare(
+          'SELECT id, numero, numero_documento, proveedor_nit, proveedor_nombre, fecha, total, concepto, categoria, referencia_pago, medio_pago, estado FROM gastos'
+        ).all();
+        const dbRows = existentes.results || [];
+
+        // Build lookup indexes
+        const porReferencia = {};
+        const porFechaTotal = {};
+        const porFechaTotalAprox = {};
+        const gastosUsados = new Set();
+
+        dbRows.forEach(r => {
+          // Index by referencia_pago (CUS, verification codes, etc.)
+          if (r.referencia_pago) {
+            const refKey = r.referencia_pago.trim().toUpperCase();
+            if (!porReferencia[refKey]) porReferencia[refKey] = [];
+            porReferencia[refKey].push(r);
+          }
+
+          // Index by fecha + total exacto
+          const totalAbs = Math.round(Math.abs(r.total));
+          const keyExacto = `${r.fecha}|${totalAbs}`;
+          if (!porFechaTotal[keyExacto]) porFechaTotal[keyExacto] = [];
+          porFechaTotal[keyExacto].push(r);
+
+          // Index by total only (for approximate date matching +/- 2 days)
+          if (!porFechaTotalAprox[totalAbs]) porFechaTotalAprox[totalAbs] = [];
+          porFechaTotalAprox[totalAbs].push(r);
+        });
+
+        const conciliados = [];
+        const sinSoporte = [];
+
+        for (const mov of movimientos) {
+          const movRef = (mov.referencia || '').trim().toUpperCase();
+          const movFecha = mov.fecha || null;
+          const movValor = Math.round(Math.abs(parseFloat(mov.valor) || 0));
+          const movDesc = (mov.descripcion || '').trim();
+
+          let match = null;
+          let metodo = '';
+
+          // Match 1: by referencia_pago (strongest match)
+          if (movRef && !match) {
+            const candidates = porReferencia[movRef];
+            if (candidates) {
+              for (const c of candidates) {
+                if (!gastosUsados.has(c.id)) {
+                  match = c;
+                  metodo = 'referencia';
+                  break;
+                }
+              }
+            }
+          }
+
+          // Match 1b: referencia contained in description or vice-versa
+          if (!match && movRef) {
+            for (const r of dbRows) {
+              if (gastosUsados.has(r.id)) continue;
+              if (r.referencia_pago) {
+                const rRef = r.referencia_pago.trim().toUpperCase();
+                if (movDesc.toUpperCase().includes(rRef) || movRef.includes(rRef)) {
+                  if (Math.round(Math.abs(r.total)) === movValor) {
+                    match = r;
+                    metodo = 'referencia_parcial';
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          // Match 2: by fecha + total exacto
+          if (!match && movFecha && movValor) {
+            const keyExacto = `${movFecha}|${movValor}`;
+            const candidates = porFechaTotal[keyExacto];
+            if (candidates) {
+              for (const c of candidates) {
+                if (!gastosUsados.has(c.id)) {
+                  match = c;
+                  metodo = 'fecha_total';
+                  break;
+                }
+              }
+            }
+          }
+
+          // Match 3: by total + fecha approximate (+/- 2 days)
+          if (!match && movFecha && movValor) {
+            const candidates = porFechaTotalAprox[movValor];
+            if (candidates) {
+              const movDate = new Date(movFecha + 'T00:00:00');
+              for (const c of candidates) {
+                if (gastosUsados.has(c.id)) continue;
+                const cDate = new Date(c.fecha + 'T00:00:00');
+                const diffDays = Math.abs((movDate - cDate) / 86400000);
+                if (diffDays <= 2) {
+                  match = c;
+                  metodo = 'fecha_aprox_total';
+                  break;
+                }
+              }
+            }
+          }
+
+          if (match) {
+            gastosUsados.add(match.id);
+            conciliados.push({
+              movimiento: mov,
+              gasto: {
+                id: match.id,
+                numero: match.numero,
+                proveedor_nombre: match.proveedor_nombre,
+                concepto: match.concepto,
+                categoria: match.categoria,
+                total: match.total,
+                fecha: match.fecha,
+                numero_documento: match.numero_documento,
+                referencia_pago: match.referencia_pago,
+                estado: match.estado
+              },
+              metodo_match: metodo
+            });
+          } else {
+            sinSoporte.push(mov);
+          }
+        }
+
+        // Gastos that exist in system but have no bank match
+        const soloEnSistema = dbRows
+          .filter(r => !gastosUsados.has(r.id))
+          .filter(r => {
+            // Only include gastos within the date range of the bank statement
+            if (!movimientos.length) return false;
+            const fechas = movimientos.map(m => m.fecha).filter(Boolean).sort();
+            if (!fechas.length) return false;
+            const minFecha = fechas[0];
+            const maxFecha = fechas[fechas.length - 1];
+            return r.fecha >= minFecha && r.fecha <= maxFecha;
+          })
+          .map(r => ({
+            id: r.id,
+            numero: r.numero,
+            proveedor_nombre: r.proveedor_nombre,
+            concepto: r.concepto,
+            categoria: r.categoria,
+            total: r.total,
+            fecha: r.fecha,
+            numero_documento: r.numero_documento,
+            estado: r.estado
+          }));
+
+        return json({
+          ok: true,
+          total_movimientos: movimientos.length,
+          total_conciliados: conciliados.length,
+          total_sin_soporte: sinSoporte.length,
+          total_solo_en_sistema: soloEnSistema.length,
+          conciliados,
+          sin_soporte: sinSoporte,
+          solo_en_sistema: soloEnSistema
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+
+// ════════════════════════════════════════════════════════════
+// PIECE 2: FRONTEND JAVASCRIPT
+// Add this block in index.html inside the <script> tag,
+// AFTER the cerrarDIAN() function (around line 1449)
+// ════════════════════════════════════════════════════════════
+
+// ============================================================
+// Cruce Bancario
+// ============================================================
+
+async function procesarBanco(file) {
+  if (!file) return;
+  document.getElementById('banco-file').value = '';
+
+  try {
+    await loadSheetJS();
+  } catch {
+    showToast('Error cargando librería Excel', 'err');
+    return;
+  }
+
+  const overlay = document.getElementById('banco-overlay');
+  overlay.classList.add('show');
+  document.getElementById('banco-loading').style.display = 'inline';
+  document.getElementById('banco-stats').innerHTML = '';
+  document.getElementById('banco-results').innerHTML = '';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+    if (!rows.length) {
+      showToast('Excel vacío', 'err');
+      cerrarBanco();
+      return;
+    }
+
+    // Map bank statement columns to our format
+    const movimientos = rows.map(r => {
+      const keys = Object.keys(r);
+      const debito = parseNum(findCol(r, keys, ['debito', 'débito', 'debitos', 'débitos', 'cargo', 'cargos', 'valor debito', 'monto debito']));
+      const credito = parseNum(findCol(r, keys, ['credito', 'crédito', 'creditos', 'créditos', 'abono', 'abonos', 'valor credito', 'monto credito']));
+      let valor = parseNum(findCol(r, keys, ['valor', 'monto', 'importe', 'total', 'valor transaccion', 'valor movimiento']));
+
+      // If there are separate debit/credit columns, use debit (expenses)
+      if (!valor && (debito || credito)) {
+        valor = debito || -credito;
+      }
+
+      return {
+        fecha: parseDate(findCol(r, keys, ['fecha', 'fecha movimiento', 'fecha transaccion', 'fecha operacion', 'date'])),
+        descripcion: findCol(r, keys, ['descripcion', 'descripción', 'concepto', 'detalle', 'referencia', 'movimiento', 'description', 'observacion', 'observación']) || '',
+        valor: Math.abs(valor),
+        referencia: String(findCol(r, keys, ['referencia', 'ref', 'numero referencia', 'no. referencia', 'cus', 'numero aprobacion', 'no aprobacion', 'comprobante', 'numero comprobante', 'doc', 'numero documento']) || '').trim(),
+        tipo: debito ? 'debito' : credito ? 'credito' : (valor >= 0 ? 'debito' : 'credito'),
+        _raw: r
+      };
+    }).filter(m => m.valor > 0 && m.fecha);
+
+    if (!movimientos.length) {
+      document.getElementById('banco-results').innerHTML = '<p style="color:var(--warn)">No se encontraron movimientos válidos. Verifica que el Excel tiene columnas como Fecha, Valor/Débito/Crédito, Descripción, etc.</p>';
+      document.getElementById('banco-loading').style.display = 'none';
+      return;
+    }
+
+    // Send to Worker
+    const res = await fetch(`${WORKER_URL}/api/cruce-banco`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ movimientos })
+    });
+    const data = await res.json();
+
+    document.getElementById('banco-loading').style.display = 'none';
+
+    if (!data.ok) {
+      document.getElementById('banco-results').innerHTML = `<p style="color:var(--warn)">Error: ${data.error}</p>`;
+      return;
+    }
+
+    renderBancoResults(data);
+
+  } catch (err) {
+    document.getElementById('banco-loading').style.display = 'none';
+    document.getElementById('banco-results').innerHTML = `<p style="color:var(--warn)">Error: ${err.message}</p>`;
+  }
+}
+
+function renderBancoResults(data) {
+  // Stats
+  document.getElementById('banco-stats').innerHTML = `
+    <div class="dian-stat"><div class="ds-label">Movimientos Banco</div><div class="ds-value">${data.total_movimientos}</div></div>
+    <div class="dian-stat"><div class="ds-label">Conciliados</div><div class="ds-value green">${data.total_conciliados}</div></div>
+    <div class="dian-stat"><div class="ds-label">Sin soporte</div><div class="ds-value yellow">${data.total_sin_soporte}</div></div>
+    <div class="dian-stat"><div class="ds-label">Solo en sistema</div><div class="ds-value blue">${data.total_solo_en_sistema}</div></div>
+  `;
+
+  // Calculate totals for summary
+  const totalConciliado = data.conciliados.reduce((s, c) => s + Math.abs(c.movimiento.valor), 0);
+  const totalSinSoporte = data.sin_soporte.reduce((s, m) => s + Math.abs(m.valor), 0);
+  const totalSoloSistema = data.solo_en_sistema.reduce((s, g) => s + Math.abs(g.total), 0);
+
+  let html = '';
+
+  // Summary bar
+  html += `<div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;font-size:11px;color:var(--muted)">
+    <span>Conciliado: <strong style="color:var(--accent)">${fmt(totalConciliado)}</strong></span>
+    <span>Sin soporte: <strong style="color:var(--accent2)">${fmt(totalSinSoporte)}</strong></span>
+    <span>Solo sistema: <strong style="color:#a0d0f0">${fmt(totalSoloSistema)}</strong></span>
+    <span>Diferencia: <strong style="color:var(--warn)">${fmt(totalSinSoporte - totalSoloSistema)}</strong></span>
+  </div>`;
+
+  // Section 1: Conciliados (green)
+  if (data.conciliados.length) {
+    html += `<div class="dian-section"><h3 style="color:var(--accent)">Conciliados <span>${data.conciliados.length}</span></h3>
+    <table class="dian-table"><thead><tr>
+      <th>Fecha Banco</th><th>Descripción</th><th>Valor Banco</th><th>#</th><th>Proveedor</th><th>Total Sistema</th><th>Match</th>
+    </tr></thead><tbody>`;
+    data.conciliados.forEach(c => {
+      const m = c.movimiento;
+      const g = c.gasto;
+      const diff = Math.abs(m.valor) - Math.abs(g.total);
+      const diffStr = Math.abs(diff) > 1 ? ` <span style="color:var(--warn);font-size:9px">(dif: ${fmt(diff)})</span>` : '';
+      const matchLabel = {
+        referencia: 'REF',
+        referencia_parcial: 'REF~',
+        fecha_total: 'F+$',
+        fecha_aprox_total: 'F~+$'
+      }[c.metodo_match] || c.metodo_match;
+
+      html += `<tr>
+        <td>${m.fecha||'—'}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion||'—'}</td>
+        <td style="text-align:right">${fmt(m.valor)}</td>
+        <td class="num">${g.numero}</td>
+        <td>${g.proveedor_nombre}</td>
+        <td style="text-align:right">${fmt(g.total)}${diffStr}</td>
+        <td><span style="background:var(--border);padding:1px 6px;border-radius:8px;font-size:9px;color:var(--accent)">${matchLabel}</span></td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Section 2: Sin soporte (yellow) — bank movements without system match
+  if (data.sin_soporte.length) {
+    html += `<div class="dian-section"><h3 style="color:var(--accent2)">Sin soporte en sistema <span>${data.sin_soporte.length}</span></h3>
+    <table class="dian-table"><thead><tr>
+      <th>Fecha</th><th>Descripción</th><th>Valor</th><th>Referencia</th>
+    </tr></thead><tbody>`;
+    data.sin_soporte.forEach(m => {
+      html += `<tr style="background:rgba(240,224,160,.04)">
+        <td>${m.fecha||'—'}</td>
+        <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion||'—'}</td>
+        <td style="text-align:right;color:var(--accent2)">${fmt(m.valor)}</td>
+        <td style="font-size:10px">${m.referencia||'—'}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Section 3: Solo en sistema (blue) — system records without bank match
+  if (data.solo_en_sistema.length) {
+    html += `<div class="dian-section"><h3 style="color:#a0d0f0">Solo en sistema <span>${data.solo_en_sistema.length}</span></h3>
+    <table class="dian-table"><thead><tr>
+      <th>#</th><th>Proveedor</th><th>Concepto</th><th>Fecha</th><th>Total</th><th>Estado</th>
+    </tr></thead><tbody>`;
+    data.solo_en_sistema.forEach(g => {
+      html += `<tr style="background:rgba(160,208,240,.04)">
+        <td class="num">${g.numero}</td>
+        <td>${g.proveedor_nombre}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.concepto}">${g.concepto||'—'}</td>
+        <td>${g.fecha||'—'}</td>
+        <td style="text-align:right;color:#a0d0f0">${fmt(g.total)}</td>
+        <td style="font-size:10px">${g.estado}</td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Empty state
+  if (!data.conciliados.length && !data.sin_soporte.length && !data.solo_en_sistema.length) {
+    html += '<p style="color:var(--muted);text-align:center;padding:40px 0">No se encontraron movimientos para conciliar en el rango de fechas.</p>';
+  }
+
+  document.getElementById('banco-results').innerHTML = html;
+}
+
+function exportarCruceBanco() {
+  const rows = [];
+  // Gather all visible rows from the results tables
+  const tables = document.querySelectorAll('#banco-results .dian-table');
+  tables.forEach(table => {
+    const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent.trim());
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const row = {};
+      const cells = tr.querySelectorAll('td');
+      cells.forEach((td, i) => {
+        if (headers[i]) row[headers[i]] = td.textContent.trim();
+      });
+      rows.push(row);
+    });
+  });
+
+  if (!rows.length) {
+    showToast('No hay datos para exportar', 'err');
+    return;
+  }
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Conciliación');
+  XLSX.writeFile(wb, `conciliacion-bancaria-${new Date().toISOString().slice(0,10)}.xlsx`);
+  showToast('Excel exportado', 'ok');
+}
+
+function cerrarBanco() {
+  document.getElementById('banco-overlay').classList.remove('show');
+}
+
+
+// ════════════════════════════════════════════════════════════
+// PIECE 3: HTML — SIDEBAR BUTTON + MODAL
+// ════════════════════════════════════════════════════════════
+
+// --- 3A: SIDEBAR BUTTON ---
+// Add this block in index.html inside the <nav>, AFTER the DIAN section
+// (after the closing </div> of the DIAN nav-section, around line 459)
+
+/*
+    <div class="nav-section">
+      <div class="nav-label">Banco</div>
+      <div class="nav-item" onclick="document.getElementById('banco-file').click()" style="color:var(--accent2)">
+        <div class="nav-dot" style="background:var(--accent2)"></div> Cruce Bancario
+      </div>
+      <input type="file" id="banco-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="procesarBanco(this.files[0])">
+    </div>
+*/
+
+
+// --- 3B: MODAL HTML ---
+// Add this block in index.html AFTER the dian-overlay div (after line 650)
+
+/*
+<div class="dian-overlay" id="banco-overlay" onclick="if(event.target===this)cerrarBanco()">
+  <div class="dian-modal" style="max-width:1050px">
+    <div class="dian-header">
+      <h2>Cruce Bancario</h2>
+      <span id="banco-loading" style="font-size:11px;color:var(--muted);display:none">Procesando extracto...</span>
+      <span class="dian-close" onclick="cerrarBanco()">&#x2715;</span>
+    </div>
+    <div class="dian-stats" id="banco-stats"></div>
+    <div id="banco-results"></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-secondary" onclick="exportarCruceBanco()" style="font-size:11px">Exportar Excel</button>
+      <button class="btn btn-secondary" onclick="cerrarBanco()" style="font-size:11px;margin-left:auto">Cerrar</button>
+    </div>
+  </div>
+</div>
+*/

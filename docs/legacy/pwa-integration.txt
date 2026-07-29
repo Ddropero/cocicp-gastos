@@ -1,0 +1,36 @@
+=============================================
+PWA Integration — Tags to add in each HTML
+=============================================
+
+--- index.html (Dashboard) ---
+Add inside <head>:
+
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d0f0e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+Add before </body>:
+
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+  }
+</script>
+
+
+--- app.html (Captura) ---
+Add inside <head>:
+
+<link rel="manifest" href="/manifest-captura.json">
+<meta name="theme-color" content="#0d0f0e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+Add before </body>:
+
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+  }
+</script>

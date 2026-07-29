@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>COCICP · Iniciar sesión</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#F5F1E8">
+<style>
+  /* BAUHAUS — login */
+  :root {
+    --bg:        #F5F1E8;
+    --surface:   #FFFFFF;
+    --border:    #0A0A0A;
+    --accent:    #1D4ED8;
+    --accent2:   #FACC15;
+    --warn:      #E63946;
+    --text:      #0A0A0A;
+    --muted:     #6B7280;
+    --mono:      'JetBrains Mono', monospace;
+    --serif:     'Archivo Black', sans-serif;
+    --sans:      'Space Grotesk', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Decoraciones Bauhaus de fondo */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -120px; left: -120px;
+    width: 280px; height: 280px;
+    border-radius: 50%;
+    background: var(--warn);
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -100px; right: -100px;
+    width: 240px; height: 240px;
+    background: var(--accent2);
+    transform: rotate(45deg);
+    z-index: 0;
+  }
+  .triangle-decoration {
+    position: fixed;
+    top: 40%;
+    right: 8%;
+    width: 0;
+    height: 0;
+    border-left: 60px solid transparent;
+    border-right: 60px solid transparent;
+    border-bottom: 100px solid var(--accent);
+    z-index: 0;
+    opacity: 0.85;
+  }
+  .login-box {
+    background: var(--surface);
+    border: 4px solid var(--border);
+    border-radius: 0;
+    padding: 36px 32px;
+    width: 100%;
+    max-width: 420px;
+    position: relative;
+    z-index: 1;
+    box-shadow: 10px 10px 0 var(--border);
+  }
+  .logo {
+    font-family: var(--serif);
+    font-size: 30px;
+    font-weight: 900;
+    color: var(--text);
+    margin-bottom: 4px;
+    letter-spacing: -0.04em;
+    text-transform: uppercase;
+  }
+  .logo span {
+    color: var(--accent);
+    font-family: var(--sans);
+    font-style: italic;
+    font-weight: 600;
+    text-transform: lowercase;
+    margin-left: 6px;
+  }
+  .subtitle {
+    font-family: var(--sans);
+    font-size: 10px;
+    color: var(--text);
+    margin-bottom: 28px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: 700;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--border);
+  }
+  .form-group { margin-bottom: 16px; }
+  label {
+    display: block;
+    font-family: var(--sans);
+    font-size: 10px;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  input[type="email"], input[type="password"], input[type="text"] {
+    width: 100%;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 0;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  input:focus {
+    outline: 3px solid var(--accent);
+    outline-offset: 0;
+    border-color: var(--border);
+  }
+  .code-input {
+    text-align: center;
+    font-size: 22px;
+    letter-spacing: 8px;
+    padding: 16px;
+    font-weight: 700;
+  }
+  .btn {
+    width: 100%;
+    padding: 13px;
+    background: var(--accent);
+    color: #FFFFFF;
+    border: 2px solid var(--border);
+    border-radius: 0;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    box-shadow: 4px 4px 0 var(--border);
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .btn:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 var(--border);
+  }
+  .btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 2px 2px 0 var(--border);
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: 2px 2px 0 var(--border); }
+  .btn-ghost {
+    background: var(--surface);
+    color: var(--text);
+    border: 2px solid var(--border);
+    margin-top: 8px;
+  }
+  .error {
+    background: var(--warn);
+    color: #FFFFFF;
+    padding: 11px 14px;
+    border: 2px solid var(--border);
+    border-radius: 0;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    display: none;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 3px 3px 0 var(--border);
+  }
+  .error.show { display: block; }
+  .info {
+    background: var(--accent2);
+    color: var(--text);
+    padding: 10px 14px;
+    border: 2px solid var(--border);
+    border-radius: 0;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .step { display: none; }
+  .step.active { display: block; }
+  .qr-box {
+    text-align: center;
+    background: white;
+    padding: 16px;
+    border: 2px solid var(--border);
+    border-radius: 0;
+    margin-bottom: 14px;
+    box-shadow: 4px 4px 0 var(--border);
+  }
+  .qr-box img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .secret-text {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    background: var(--accent2);
+    padding: 10px 14px;
+    border: 2px solid var(--border);
+    border-radius: 0;
+    word-break: break-all;
+    margin-bottom: 14px;
+    font-weight: 600;
+  }
+  .secret-text strong {
+    color: var(--text);
+    font-weight: 700;
+    background: var(--surface);
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+  }
+  .hint {
+    font-family: var(--sans);
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 10px;
+    text-align: center;
+    line-height: 1.5;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+  .footer-note {
+    margin-top: 18px;
+    text-align: center;
+    font-family: var(--sans);
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: 700;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+  <div class="triangle-decoration"></div>
+  <div class="login-box">
+    <div class="logo">COCICP <span>gastos</span></div>
+    <div class="subtitle">Acceso seguro</div>
+
+    <div class="error" id="error"></div>
+
+    <!-- Step 1: login -->
+    <div class="step active" id="step-login">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="email" autocomplete="username" placeholder="david@davidduque.com">
+      </div>
+      <div class="form-group">
+        <label>Contraseña</label>
+        <input type="password" id="password" autocomplete="current-password">
+      </div>
+      <button class="btn" id="btn-login" onclick="doLogin()">Continuar</button>
+      <div class="footer-note">Los conductores y usuarios de captura no necesitan login</div>
+    </div>
+
+    <!-- Step 2a: setup 2FA (primera vez) -->
+    <div class="step" id="step-setup">
+      <div class="info">Configuración de 2FA requerida</div>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+        Escanea este código QR con <strong style="color:var(--accent)">Google Authenticator</strong>
+        (o cualquier app compatible como Authy, 1Password).
+      </p>
+      <div class="qr-box">
+        <img id="qr-img" alt="QR Code">
+      </div>
+      <div class="secret-text">
+        O ingresa manualmente: <strong id="secret-text"></strong>
+      </div>
+      <div class="form-group">
+        <label>Código de 6 dígitos</label>
+        <input type="text" id="setup-code" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code">
+      </div>
+      <button class="btn" id="btn-setup" onclick="doSetupVerify()">Verificar y activar</button>
+      <button class="btn btn-ghost" onclick="resetForm()">Volver</button>
+    </div>
+
+    <!-- Step 2b: enter TOTP code -->
+    <div class="step" id="step-2fa">
+      <div class="form-group">
+        <label>Código de Google Authenticator</label>
+        <input type="text" id="totp-code" class="code-input" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code">
+      </div>
+      <button class="btn" id="btn-2fa" onclick="doVerify2FA()">Verificar</button>
+      <button class="btn btn-ghost" onclick="resetForm()">Volver</button>
+      <div class="hint">Abre Google Authenticator e ingresa el código de 6 dígitos</div>
+    </div>
+  </div>
+
+<script>
+const WORKER_URL = 'https://cocicp-gastos.ddropero.workers.dev';
+let tempToken = null;
+
+// Si ya hay sesión activa, redirigir
+(async () => {
+  const existing = localStorage.getItem('session_token');
+  if (!existing) return;
+  try {
+    const res = await fetch(`${WORKER_URL}/api/auth/me`, {
+      headers: { 'Authorization': `Bearer ${existing}` }
+    });
+    if (res.ok) window.location.href = '/index.html';
+  } catch {}
+})();
+
+function showStep(id) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  hideError();
+}
+function showError(msg) {
+  const el = document.getElementById('error');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function hideError() {
+  document.getElementById('error').classList.remove('show');
+}
+function resetForm() {
+  tempToken = null;
+  document.getElementById('password').value = '';
+  document.getElementById('setup-code').value = '';
+  document.getElementById('totp-code').value = '';
+  showStep('step-login');
+}
+
+async function doLogin() {
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  if (!email || !password) { showError('Ingresa email y contraseña'); return; }
+
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true; btn.textContent = 'Verificando...';
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || 'Credenciales inválidas'); return; }
+
+    // 2FA deshabilitado: ir directo al dashboard
+    if (data.session_token) {
+      localStorage.setItem('session_token', data.session_token);
+      window.location.href = '/index.html';
+      return;
+    }
+    tempToken = data.temp_token;
+    if (data.needs_setup) {
+      const setupRes = await fetch(`${WORKER_URL}/api/auth/setup-2fa`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${tempToken}` }
+      });
+      const setupData = await setupRes.json();
+      if (!setupRes.ok) { showError(setupData.error || 'Error configurando 2FA'); return; }
+      // (Fase 2.7) QR generado LOCALMENTE en el navegador — el secreto NUNCA se envía
+      // a un servicio de imágenes externo. Fallback: entrada manual del secreto.
+      document.getElementById('secret-text').textContent = setupData.secret;
+      try {
+        if (!window.QRCode) {
+          await new Promise((ok, no) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js';
+            s.onload = ok; s.onerror = no;
+            document.head.appendChild(s);
+          });
+        }
+        const dataUrl = await window.QRCode.toDataURL(setupData.otpauth_uri, { margin: 1, width: 220 });
+        document.getElementById('qr-img').src = dataUrl;
+      } catch {
+        const img = document.getElementById('qr-img');
+        if (img) img.style.display = 'none';
+      }
+      showStep('step-setup');
+    } else {
+      showStep('step-2fa');
+      document.getElementById('totp-code').focus();
+    }
+  } catch (err) {
+    showError('Error de conexión: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Continuar';
+  }
+}
+
+async function doSetupVerify() {
+  const code = document.getElementById('setup-code').value.trim();
+  if (!/^\d{6}$/.test(code)) { showError('Ingresa el código de 6 dígitos'); return; }
+
+  const btn = document.getElementById('btn-setup');
+  btn.disabled = true; btn.textContent = 'Verificando...';
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/auth/verify-2fa`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tempToken}` },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || 'Código inválido'); return; }
+
+    localStorage.setItem('session_token', data.session_token);
+    window.location.href = '/index.html';
+  } catch (err) {
+    showError('Error: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Verificar y activar';
+  }
+}
+
+async function doVerify2FA() {
+  const code = document.getElementById('totp-code').value.trim();
+  if (!/^\d{6}$/.test(code)) { showError('Ingresa el código de 6 dígitos'); return; }
+
+  const btn = document.getElementById('btn-2fa');
+  btn.disabled = true; btn.textContent = 'Verificando...';
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/auth/verify-2fa`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tempToken}` },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json();
+    if (!res.ok) { showError(data.error || 'Código inválido'); return; }
+
+    localStorage.setItem('session_token', data.session_token);
+    window.location.href = '/index.html';
+  } catch (err) {
+    showError('Error: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Verificar';
+  }
+}
+
+// Enter key en cada input
+document.getElementById('password').addEventListener('keypress', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('email').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('password').focus(); });
+document.getElementById('totp-code').addEventListener('keypress', e => { if (e.key === 'Enter') doVerify2FA(); });
+document.getElementById('setup-code').addEventListener('keypress', e => { if (e.key === 'Enter') doSetupVerify(); });
+</script>
+</body>
+</html>

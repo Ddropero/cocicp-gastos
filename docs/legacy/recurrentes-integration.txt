@@ -1,0 +1,153 @@
+================================================================
+COCICP Gastos — Integración de recurrentes.js
+Código exacto para agregar a worker.js e index.html
+================================================================
+
+
+================================================================
+1. WORKER.JS — Agregar import (al inicio, con los otros imports)
+================================================================
+
+import { checkRecurrentes } from './recurrentes.js';
+
+
+================================================================
+2. WORKER.JS — Agregar endpoint GET /api/recurrentes
+   Insertar ANTES de la línea: return json({ error: 'Not found' }, 404);
+================================================================
+
+    // ── GET /api/recurrentes ─────────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/recurrentes') {
+      try {
+        const p    = url.searchParams;
+        const mes  = parseInt(p.get('mes'))  || new Date().getMonth() + 1;
+        const anio = parseInt(p.get('anio')) || new Date().getFullYear();
+        const result = await checkRecurrentes(env.DB, mes, anio);
+        return json({ ok: true, ...result });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+
+================================================================
+3. INDEX.HTML — Agregar sección en sidebar (dentro de <nav>)
+   Insertar ANTES de la sección "Exportar", es decir
+   ANTES de: <div class="nav-section">
+               <div class="nav-label">Exportar</div>
+================================================================
+
+    <div class="nav-section" id="recurrentes-section" style="display:none">
+      <div class="nav-label">Recurrentes</div>
+      <div id="recurrentes-warn"></div>
+    </div>
+
+
+================================================================
+4. INDEX.HTML — Agregar CSS (dentro del bloque <style>)
+   Insertar ANTES de: /* ── Main content ── */
+================================================================
+
+  /* ── Recurrentes warning ── */
+  .rec-ok {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; font-size: 11px; color: var(--muted);
+  }
+  .rec-ok .rec-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .rec-warn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; font-size: 11px; color: var(--warn);
+    cursor: default;
+  }
+  .rec-warn .rec-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex-shrink: 0; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .rec-summary {
+    padding: 4px 8px; font-size: 10px; color: var(--muted);
+    border-top: 1px solid var(--border); margin-top: 4px;
+  }
+
+
+================================================================
+5. INDEX.HTML — Agregar función JS y llamada en init
+   Insertar ANTES de: </script>
+================================================================
+
+  // ── Recurrentes ──────────────────────────────────────────
+  async function loadRecurrentes() {
+    const ahora = new Date();
+    const mes   = ahora.getMonth() + 1;
+    const anio  = ahora.getFullYear();
+    try {
+      const res = await fetch(`${WORKER_URL}/api/recurrentes?mes=${mes}&anio=${anio}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.ok) return;
+
+      const section = document.getElementById('recurrentes-section');
+      const container = document.getElementById('recurrentes-warn');
+      section.style.display = 'block';
+
+      let html = '';
+
+      // Mostrar faltantes primero (advertencias)
+      for (const f of data.faltantes) {
+        html += `<div class="rec-warn" title="Sin registro en ${mesNombre(mes)} ${anio}">
+          <div class="rec-dot"></div> ${f.nombre}
+        </div>`;
+      }
+
+      // Mostrar confirmados
+      for (const o of data.ok) {
+        const valor = o.registro ? formatCOP(o.registro.total) : '';
+        html += `<div class="rec-ok" title="${valor}">
+          <div class="rec-dot"></div> ${o.nombre}
+        </div>`;
+      }
+
+      // Resumen
+      if (data.faltantes.length > 0) {
+        html += `<div class="rec-summary">${data.faltantes.length} de ${data.faltantes.length + data.ok.length} pendientes en ${mesNombre(mes)}</div>`;
+      } else {
+        html += `<div class="rec-summary">Todo al dia en ${mesNombre(mes)}</div>`;
+      }
+
+      container.innerHTML = html;
+    } catch (e) {
+      // Silencioso si el worker no responde
+    }
+  }
+
+  function mesNombre(m) {
+    return ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m] || '';
+  }
+
+
+================================================================
+6. INDEX.HTML — Llamar loadRecurrentes() en el init
+   Buscar la llamada existente a loadGastos() y agregar
+   loadRecurrentes() justo después. Ejemplo:
+================================================================
+
+  // Donde ya existe algo como:
+  loadGastos();
+  // Agregar inmediatamente después:
+  loadRecurrentes();
+
+
+================================================================
+RESUMEN DE CAMBIOS
+================================================================
+
+worker.js:
+  - 1 import nuevo (línea ~10)
+  - 1 endpoint nuevo GET /api/recurrentes (antes del 404 final)
+
+index.html:
+  - 1 bloque CSS nuevo (estilos .rec-ok, .rec-warn, .rec-summary)
+  - 1 sección HTML nueva en <nav> (div#recurrentes-section)
+  - 1 función JS nueva (loadRecurrentes + mesNombre)
+  - 1 llamada adicional (loadRecurrentes() junto a loadGastos())
+
+recurrentes.js:
+  - Módulo standalone, sin dependencias externas
+  - Exporta RECURRENTES (array de 6 proveedores) y checkRecurrentes()

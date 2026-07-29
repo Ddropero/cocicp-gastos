@@ -1,0 +1,24 @@
+# Dependencias
+node_modules/
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+wrangler-account.json
+
+# Entorno / secretos
+.env
+.env.*
+
+# Builds
+dist/
+dist-pages/
+documentos-deploy/
+
+# Temporales / perfiles
+*.cpuprofile
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

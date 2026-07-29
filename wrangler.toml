@@ -5,6 +5,22 @@ compatibility_date = "2025-01-01"
 # Variables de entorno (la API key va en secrets, no aquí)
 [vars]
 ENVIRONMENT = "production"
+ALERT_EMAIL_TO = "ddropero@gmail.com"
+ALERT_EMAIL_FROM = "COCICP Alertas <alertas@davidduque.com>"
+FRONTEND_URL = "https://cocicp.davidduque.com"
+# CORS por lista permitida (además de https://cocicp.davidduque.com que ya es default).
+# Agrega aquí los dominios de captura si aplican, separados por coma:
+# CORS_ORIGINS = "https://captura.davidduque.com,https://documentos.davidduque.com"
+MAX_UPLOAD_MB = "10"
+# Secrets REQUERIDOS (NO en este archivo — usar `wrangler secret put`):
+#   ADMIN_SETUP_TOKEN         → habilita /api/auth/register
+#   TELEGRAM_WEBHOOK_SECRET   → valida webhook Telegram
+#   TWILIO_AUTH_TOKEN         → valida firma WhatsApp
+#   ANTHROPIC_API_KEY, GEMINI_API_KEY, RESEND_API_KEY
+# OCR provider: 'sonnet' | 'gemini' | 'hybrid'
+# 'hybrid' = Gemini Flash 2.5 primero, fallback a Sonnet 4.6 si falla/baja confianza
+# Si no hay GEMINI_API_KEY configurado, automáticamente cae a 'sonnet'
+OCR_PROVIDER = "hybrid"
 
 # D1 — Base de datos
 [[d1_databases]]
@@ -16,6 +32,10 @@ database_id   = "82b3f166-7042-48de-b8fb-b0350423c4be"
 [[r2_buckets]]
 binding     = "BUCKET"
 bucket_name = "cocicp-soportes"
+
+# Cron: alertas diarias a las 7am Colombia (UTC-5 = 12:00 UTC)
+[triggers]
+crons = ["0 12 * * *"]
 
 # Para desarrollo local
 [dev]

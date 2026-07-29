@@ -1,0 +1,399 @@
+================================================================================
+CHARTS INTEGRATION — COCICP Gastos
+================================================================================
+3 secciones: (1) Worker endpoint, (2) Frontend JS, (3) CSS
+Integrar en worker.js e index.html respectivamente.
+================================================================================
+
+
+================================================================================
+SECCION 1 — WORKER ENDPOINT
+================================================================================
+Agregar ANTES de la linea: return json({ error: 'Not found' }, 404);
+en worker.js
+--------------------------------------------------------------------------------
+
+    // ── GET /api/tendencias ────────────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/tendencias') {
+      try {
+        const meses = parseInt(url.searchParams.get('meses') || '6');
+        const limit = Math.min(Math.max(meses, 1), 24);
+
+        const result = await env.DB.prepare(`
+          SELECT strftime('%Y-%m', fecha) as mes,
+                 categoria,
+                 SUM(total) as total
+          FROM gastos
+          WHERE fecha >= date('now', '-${limit} months')
+          GROUP BY mes, categoria
+          ORDER BY mes
+        `).all();
+
+        const rows = result.results || [];
+
+        // Agrupar por mes
+        const mesesMap = {};
+        for (const row of rows) {
+          if (!mesesMap[row.mes]) {
+            mesesMap[row.mes] = { mes: row.mes, total: 0, categorias: {} };
+          }
+          mesesMap[row.mes].categorias[row.categoria] = row.total;
+          mesesMap[row.mes].total += row.total;
+        }
+
+        // Ordenar cronologicamente
+        const mesesArr = Object.values(mesesMap).sort((a, b) => a.mes.localeCompare(b.mes));
+
+        return json({ ok: true, meses: mesesArr });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+
+================================================================================
+SECCION 2 — FRONTEND JAVASCRIPT
+================================================================================
+Agregar este bloque <script> justo antes del cierre </body> en index.html.
+Requiere que WORKER_URL ya este definido en el script principal.
+--------------------------------------------------------------------------------
+
+<script>
+(function() {
+  const WORKER_URL = 'https://cocicp-gastos.ddropero.workers.dev';
+
+  const CHART_COLORS = {
+    'Alimentacion':        '#b8f0a0',
+    'Alimentacion/Viaticos':'#a8e090',
+    'Combustible':         '#f0e0a0',
+    'Educacion hijos':     '#a0d0f0',
+    'Honorarios Medicos':  '#f0b0a0',
+    'Mercado/Aseo':        '#c0f0d0',
+    'Seguridad Social':    '#d0b0f0',
+    'Transporte Aereo':    '#f0d0a0',
+    'Gastos Administrativos':'#a0f0e0',
+    'Tecnologia':          '#b0c0f0',
+    'Salud':               '#f0a0c0',
+    'Vivienda':            '#e0e0a0',
+    'Impuestos vehiculos': '#c0c0c0',
+    'Parqueadero':         '#d0d0b0',
+    'Personal':            '#f0c0f0',
+    'Miscelaneos':         '#a0a0a0',
+    'Pagos David Duque':   '#b0e0b0',
+    'Libros':              '#c0d0e0',
+    'Alojamiento':         '#e0c0a0',
+    'Prestadores de servicios':'#a0c0b0'
+  };
+
+  // Normalizar tildes para lookup de colores
+  function normKey(s) {
+    return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function getColor(cat) {
+    return CHART_COLORS[normKey(cat)] || '#888888';
+  }
+
+  // ── Inyectar boton y contenedor ──
+  const main = document.querySelector('main') || document.querySelector('.content');
+  if (!main) return;
+
+  const chartWrapper = document.createElement('div');
+  chartWrapper.id = 'chart-section';
+  chartWrapper.className = 'chart-section collapsed';
+  chartWrapper.innerHTML = `
+    <button id="btn-tendencias" class="btn-tendencias" onclick="window._toggleChart()">
+      <span class="btn-icon">&#x25B6;</span> Tendencias
+    </button>
+    <div id="chart-container" class="chart-container">
+      <div id="chart-loading" class="chart-loading">Cargando datos...</div>
+      <canvas id="tendencias-canvas"></canvas>
+    </div>
+  `;
+
+  // Insertar antes del primer hijo de main
+  main.insertBefore(chartWrapper, main.firstChild);
+
+  let chartInstance = null;
+  let chartLoaded = false;
+  let chartJsReady = false;
+
+  // ── Cargar Chart.js dinamicamente ──
+  function loadChartJs() {
+    return new Promise((resolve, reject) => {
+      if (chartJsReady) { resolve(); return; }
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+      script.onload = () => { chartJsReady = true; resolve(); };
+      script.onerror = () => reject(new Error('No se pudo cargar Chart.js'));
+      document.head.appendChild(script);
+    });
+  }
+
+  // ── Toggle chart section ──
+  window._toggleChart = async function() {
+    const section = document.getElementById('chart-section');
+    const btn = document.getElementById('btn-tendencias');
+    const icon = btn.querySelector('.btn-icon');
+    const container = document.getElementById('chart-container');
+
+    if (section.classList.contains('collapsed')) {
+      section.classList.remove('collapsed');
+      icon.innerHTML = '&#x25BC;';
+      if (!chartLoaded) {
+        await renderChart();
+      }
+    } else {
+      section.classList.add('collapsed');
+      icon.innerHTML = '&#x25B6;';
+    }
+  };
+
+  // ── Fetch data y renderizar ──
+  async function renderChart() {
+    const loading = document.getElementById('chart-loading');
+    const canvas = document.getElementById('tendencias-canvas');
+
+    try {
+      loading.style.display = 'block';
+      canvas.style.display = 'none';
+
+      // Cargar Chart.js y datos en paralelo
+      const [_, response] = await Promise.all([
+        loadChartJs(),
+        fetch(`${WORKER_URL}/api/tendencias?meses=6`)
+      ]);
+
+      const data = await response.json();
+      if (!data.ok || !data.meses || data.meses.length === 0) {
+        loading.textContent = 'Sin datos para mostrar';
+        return;
+      }
+
+      loading.style.display = 'none';
+      canvas.style.display = 'block';
+
+      // Determinar top 5 categorias por total acumulado
+      const catTotals = {};
+      for (const m of data.meses) {
+        for (const [cat, val] of Object.entries(m.categorias)) {
+          catTotals[cat] = (catTotals[cat] || 0) + val;
+        }
+      }
+      const top5 = Object.entries(catTotals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(e => e[0]);
+
+      // Labels (meses)
+      const labels = data.meses.map(m => {
+        const [y, mo] = m.mes.split('-');
+        const nombres = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+        return nombres[parseInt(mo) - 1] + ' ' + y.slice(2);
+      });
+
+      // Datasets: stacked bars para top 5
+      const datasets = top5.map(cat => ({
+        label: cat,
+        data: data.meses.map(m => Math.round((m.categorias[cat] || 0) / 1000)),
+        backgroundColor: getColor(cat) + 'CC',
+        borderColor: getColor(cat),
+        borderWidth: 1,
+        borderRadius: 2,
+        stack: 'gastos',
+        order: 2
+      }));
+
+      // "Otras" categorias agrupadas
+      const otrasData = data.meses.map(m => {
+        let otrasTotal = 0;
+        for (const [cat, val] of Object.entries(m.categorias)) {
+          if (!top5.includes(cat)) otrasTotal += val;
+        }
+        return Math.round(otrasTotal / 1000);
+      });
+
+      datasets.push({
+        label: 'Otras',
+        data: otrasData,
+        backgroundColor: '#555555CC',
+        borderColor: '#555555',
+        borderWidth: 1,
+        borderRadius: 2,
+        stack: 'gastos',
+        order: 2
+      });
+
+      // Linea de tendencia total
+      datasets.push({
+        label: 'Total mes',
+        data: data.meses.map(m => Math.round(m.total / 1000)),
+        type: 'line',
+        borderColor: '#b8f0a0',
+        backgroundColor: '#b8f0a020',
+        borderWidth: 2,
+        pointBackgroundColor: '#b8f0a0',
+        pointBorderColor: '#0d0f0e',
+        pointBorderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        tension: 0.3,
+        fill: false,
+        order: 1,
+        yAxisID: 'y'
+      });
+
+      // Crear chart
+      const ctx = canvas.getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: {
+                color: '#6b7a6b',
+                font: { family: "'DM Mono', monospace", size: 10 },
+                boxWidth: 12,
+                boxHeight: 12,
+                padding: 12,
+                usePointStyle: false
+              }
+            },
+            tooltip: {
+              backgroundColor: '#141716',
+              borderColor: '#222724',
+              borderWidth: 1,
+              titleColor: '#e8ede8',
+              bodyColor: '#6b7a6b',
+              titleFont: { family: "'DM Mono', monospace", size: 12 },
+              bodyFont: { family: "'DM Mono', monospace", size: 11 },
+              padding: 10,
+              callbacks: {
+                label: function(ctx) {
+                  const val = ctx.parsed.y;
+                  return ctx.dataset.label + ': $' + val.toLocaleString('es-CO') + 'k';
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: '#222724', lineWidth: 0.5 },
+              ticks: {
+                color: '#6b7a6b',
+                font: { family: "'DM Mono', monospace", size: 10 }
+              },
+              border: { color: '#222724' }
+            },
+            y: {
+              stacked: true,
+              grid: { color: '#222724', lineWidth: 0.5 },
+              ticks: {
+                color: '#6b7a6b',
+                font: { family: "'DM Mono', monospace", size: 10 },
+                callback: function(v) { return '$' + v.toLocaleString('es-CO') + 'k'; }
+              },
+              border: { color: '#222724' }
+            }
+          }
+        }
+      });
+
+      chartLoaded = true;
+    } catch (err) {
+      loading.textContent = 'Error cargando tendencias';
+      console.error('Chart error:', err);
+    }
+  }
+})();
+</script>
+
+
+================================================================================
+SECCION 3 — CSS
+================================================================================
+Agregar dentro del <style> en index.html, al final antes de cerrar </style>
+--------------------------------------------------------------------------------
+
+  /* ── Chart Section ── */
+  .chart-section {
+    margin: 0 0 16px 0;
+  }
+
+  .btn-tendencias {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+    text-align: left;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-tendencias:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .btn-icon {
+    font-size: 10px;
+    transition: transform 0.2s ease;
+  }
+
+  .chart-container {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    padding: 16px;
+    height: 300px;
+    position: relative;
+    overflow: hidden;
+    transition: height 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+  }
+
+  .chart-section.collapsed .chart-container {
+    height: 0;
+    padding: 0 16px;
+    opacity: 0;
+    border: none;
+    overflow: hidden;
+  }
+
+  .chart-section:not(.collapsed) .btn-tendencias {
+    border-radius: 6px 6px 0 0;
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .chart-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  #tendencias-canvas {
+    width: 100% !important;
+    height: 100% !important;
+  }

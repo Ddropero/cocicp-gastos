@@ -1,0 +1,152 @@
+============================================================
+COCICP Gastos — Integration Snippets for PDF Report
+============================================================
+These are the exact code snippets to add to worker.js and
+index.html to enable the PDF fiscal report feature.
+
+DO NOT replace the files — paste each snippet in the
+indicated location.
+
+============================================================
+1. WORKER.JS — New endpoint (add BEFORE the final 404 return)
+============================================================
+
+Locate this line in worker.js (around line 412):
+
+    return json({ error: 'Not found' }, 404);
+
+Add the following block IMMEDIATELY BEFORE that line:
+
+-------- START SNIPPET worker.js --------
+
+    // ── GET /api/reporte ───────────────────────────────────
+    if (request.method === 'GET' && url.pathname === '/api/reporte') {
+      try {
+        const p     = url.searchParams;
+        const desde = p.get('desde') || '2026-01-01';
+        const hasta = p.get('hasta') || '2026-12-31';
+
+        const result = await env.DB.prepare(
+          'SELECT * FROM gastos WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC, id DESC'
+        ).bind(desde, hasta).all();
+
+        const registros = result.results || [];
+
+        const { generateReport } = await import('./report-pdf.js');
+        const pdfBytes = generateReport(registros, desde, hasta);
+
+        return new Response(pdfBytes, {
+          headers: {
+            ...CORS_HEADERS,
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="COCICP_Reporte_${desde}_${hasta}.pdf"`,
+            'Cache-Control': 'no-cache'
+          }
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+-------- END SNIPPET worker.js --------
+
+
+============================================================
+2. INDEX.HTML — Sidebar button (add in the nav section)
+============================================================
+
+Locate this block in index.html (around line 460-463):
+
+    <div class="nav-section">
+      <div class="nav-label">Exportar</div>
+      <div class="nav-item" onclick="exportarExcel()"><div class="nav-dot"></div> Excel</div>
+      <div class="nav-item" onclick="exportarCSV()"><div class="nav-dot"></div> CSV</div>
+    </div>
+
+Replace it with (adds the PDF Fiscal button):
+
+-------- START SNIPPET index.html sidebar --------
+
+    <div class="nav-section">
+      <div class="nav-label">Exportar</div>
+      <div class="nav-item" onclick="exportarPDF()" style="color:var(--accent)"><div class="nav-dot"></div> PDF Fiscal</div>
+      <div class="nav-item" onclick="exportarExcel()"><div class="nav-dot"></div> Excel</div>
+      <div class="nav-item" onclick="exportarCSV()"><div class="nav-dot"></div> CSV</div>
+    </div>
+
+-------- END SNIPPET index.html sidebar --------
+
+
+============================================================
+3. INDEX.HTML — JS function (add after exportarExcel)
+============================================================
+
+Locate this line in index.html (around line 1154):
+
+    function exportarExcel() { showToast('Usa el CSV e impórtalo en Excel', 'ok'); }
+
+Add the following function IMMEDIATELY AFTER that line:
+
+-------- START SNIPPET index.html script --------
+
+function exportarPDF() {
+  const now = new Date();
+  let desde, hasta;
+  if (periodo === 'mes') {
+    desde = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    hasta = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-31`;
+  } else if (periodo === '2026') {
+    desde = '2026-01-01'; hasta = '2026-12-31';
+  } else {
+    desde = '2024-01-01'; hasta = '2030-12-31';
+  }
+  showToast('Generando reporte PDF...', 'ok');
+  fetch(`${WORKER_URL}/api/reporte?desde=${desde}&hasta=${hasta}`)
+    .then(res => {
+      if (!res.ok) throw new Error('Error generando reporte');
+      return res.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href     = url;
+      a.download = `COCICP_Reporte_${desde}_${hasta}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Reporte PDF descargado', 'ok');
+    })
+    .catch(err => showToast('Error: ' + err.message, 'err'));
+}
+
+-------- END SNIPPET index.html script --------
+
+
+============================================================
+SUMMARY
+============================================================
+
+After applying these 3 snippets:
+
+- Worker serves GET /api/reporte?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+  which queries D1 and generates a PDF via report-pdf.js
+
+- Sidebar shows a green "PDF Fiscal" button above Excel/CSV
+
+- Clicking "PDF Fiscal" fetches the report using the current
+  period filter and triggers a browser download
+
+- The PDF includes:
+  * Header with COCICP branding and period
+  * NIT 901277565-7
+  * Summary: total registros, gran total, IVA, INC
+  * Category breakdown table with count, total, and percentage
+  * Deducible vs No deducible analysis with visual bars
+  * Footer with generation timestamp
+
+- Non-deducible categories:
+  Educación hijos, Personal, Vivienda, Pagos David Duque,
+  Impuestos vehículos, Misceláneos
+
+- After editing, redeploy:
+  wrangler deploy
+  wrangler pages deploy . --project-name=cocicp-gastos-ui

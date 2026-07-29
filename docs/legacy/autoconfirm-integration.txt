@@ -1,0 +1,309 @@
+================================================================================
+AUTO-CONFIRM FEATURE — Integration Diffs
+================================================================================
+
+Three changes: Worker (POST /api/upload), Frontend (handleFiles + sidebar).
+Apply in order. Line references match current files as of 2026-04-06.
+
+
+================================================================================
+1. WORKER.JS — POST /api/upload auto-confirm path
+================================================================================
+
+CONTEXT: Inside the POST /api/upload handler, after the preview is built and
+duplicate check is done (line 150-152), before the final return (line 153).
+
+FIND (lines 147-153):
+────────────────────────────────────────────────────────────────────────────────
+        const preview = mergeAgents(a1, a2, a3, usuario);
+        preview.archivo_r2 = r2Key;
+        const dup = await checkDuplicate(env.DB, preview.numero_documento, preview.total, preview.fecha, preview.proveedor_nit);
+        preview.es_posible_duplicado = !!dup;
+        preview.duplicado_info = dup;
+
+        return json({ ok: true, preview });
+────────────────────────────────────────────────────────────────────────────────
+
+REPLACE WITH:
+────────────────────────────────────────────────────────────────────────────────
+        const preview = mergeAgents(a1, a2, a3, usuario);
+        preview.archivo_r2 = r2Key;
+        const dup = await checkDuplicate(env.DB, preview.numero_documento, preview.total, preview.fecha, preview.proveedor_nit);
+        preview.es_posible_duplicado = !!dup;
+        preview.duplicado_info = dup;
+
+        // ── Auto-confirm: proveedor conocido + confianza alta + sin duplicado + total positivo ──
+        const wantsAuto = form.get('auto_confirm') === '1';
+        if (wantsAuto
+            && preview.en_catalogo === true
+            && preview.confianza_global === 'alta'
+            && !preview.es_posible_duplicado
+            && preview.total > 0) {
+
+          const maxRow = await env.DB.prepare('SELECT MAX(numero) as max FROM gastos').first();
+          const numero = (maxRow?.max || 0) + 1;
+
+          await env.DB.prepare(`
+            INSERT INTO gastos
+              (numero, fecha, proveedor_nit, proveedor_nombre, numero_documento,
+               concepto, categoria, valor_base, iva, inc, otros_impuestos,
+               total, es_nota_credito, medio_pago, referencia_pago,
+               archivo_r2, usuario, estado, notas)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).bind(
+            numero, preview.fecha, preview.proveedor_nit, preview.proveedor_nombre,
+            preview.numero_documento, preview.concepto, preview.categoria,
+            preview.valor_base || 0, preview.iva || 0, preview.inc || 0,
+            preview.otros_impuestos || 0, preview.total,
+            preview.es_nota_credito ? 1 : 0,
+            preview.medio_pago, preview.referencia_pago,
+            preview.archivo_r2, preview.usuario || 'david',
+            'confirmado', preview.notas || null
+          ).run();
+
+          preview.auto_confirmado = true;
+          return json({ ok: true, preview, auto_confirmado: true, numero });
+        }
+
+        return json({ ok: true, preview });
+────────────────────────────────────────────────────────────────────────────────
+
+
+================================================================================
+2. INDEX.HTML — Sidebar checkbox (new nav-section)
+================================================================================
+
+CONTEXT: Add a new nav-section right before the closing </nav> tag (line 465).
+
+FIND (lines 460-465):
+────────────────────────────────────────────────────────────────────────────────
+    <div class="nav-section">
+      <div class="nav-label">Exportar</div>
+      <div class="nav-item" onclick="exportarExcel()"><div class="nav-dot"></div> Excel</div>
+      <div class="nav-item" onclick="exportarCSV()"><div class="nav-dot"></div> CSV</div>
+    </div>
+  </nav>
+────────────────────────────────────────────────────────────────────────────────
+
+REPLACE WITH:
+────────────────────────────────────────────────────────────────────────────────
+    <div class="nav-section">
+      <div class="nav-label">Exportar</div>
+      <div class="nav-item" onclick="exportarExcel()"><div class="nav-dot"></div> Excel</div>
+      <div class="nav-item" onclick="exportarCSV()"><div class="nav-dot"></div> CSV</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Opciones</div>
+      <label class="nav-item" style="cursor:pointer;gap:8px;">
+        <input type="checkbox" id="chk-autoconfirm"
+          onchange="localStorage.setItem('autoConfirm', this.checked ? '1' : '0')"
+          style="accent-color:var(--accent);width:14px;height:14px;">
+        Auto-confirmar conocidos
+      </label>
+    </div>
+  </nav>
+────────────────────────────────────────────────────────────────────────────────
+
+
+================================================================================
+3. INDEX.HTML — JS: restore checkbox + handleFiles changes
+================================================================================
+
+PART A: Restore checkbox state on DOMContentLoaded.
+
+FIND (lines 691-694):
+────────────────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  setupDrop();
+  cargarGastos();
+});
+────────────────────────────────────────────────────────────────────────────────
+
+REPLACE WITH:
+────────────────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  setupDrop();
+  cargarGastos();
+  // Restore auto-confirm checkbox from localStorage
+  const chk = document.getElementById('chk-autoconfirm');
+  if (chk) chk.checked = localStorage.getItem('autoConfirm') === '1';
+});
+────────────────────────────────────────────────────────────────────────────────
+
+
+PART B: handleFiles — pass auto_confirm in FormData + handle auto-confirmed
+responses separately.
+
+FIND (lines 738-788):
+────────────────────────────────────────────────────────────────────────────────
+  let done = 0;
+  let errors = 0;
+  let duplicados = 0;
+
+  // Procesar todos en paralelo
+  const promises = fileList.map(async (file, i) => {
+    const shortName = file.name.length > 20 ? file.name.slice(0,17) + '...' : file.name;
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('usuario', usuario);
+
+      const res  = await fetch(`${WORKER_URL}/api/upload`, { method: 'POST', body: form });
+      const data = await res.json();
+
+      done++;
+      status.textContent = `${done} / ${fileList.length}`;
+
+      if (data.ok) {
+        // Descartar duplicados automáticamente
+        if (data.preview.es_posible_duplicado) {
+          duplicados++;
+          pills[i].className = 'agent-pill error';
+          pills[i].innerHTML = `⊘ ${shortName} (duplicado)`;
+        } else {
+          pills[i].className = 'agent-pill done';
+          pills[i].innerHTML = `✓ ${shortName}`;
+          previewQueue.push(data.preview);
+        }
+      } else {
+        pills[i].className = 'agent-pill error';
+        pills[i].innerHTML = `✕ ${shortName}`;
+        errors++;
+      }
+    } catch (err) {
+      done++;
+      errors++;
+      pills[i].className = 'agent-pill error';
+      pills[i].innerHTML = `✕ ${shortName}`;
+    }
+  });
+
+  await Promise.all(promises);
+
+  // Resumen
+  const nuevos = previewQueue.length;
+  const partes = [];
+  if (nuevos > 0) partes.push(`${nuevos} nuevo${nuevos > 1 ? 's' : ''}`);
+  if (duplicados > 0) partes.push(`${duplicados} duplicado${duplicados > 1 ? 's' : ''} descartado${duplicados > 1 ? 's' : ''}`);
+  if (errors > 0) partes.push(`${errors} con error`);
+  showToast(partes.join(' · ') || 'Sin archivos procesados', nuevos > 0 ? 'ok' : 'err');
+────────────────────────────────────────────────────────────────────────────────
+
+REPLACE WITH:
+────────────────────────────────────────────────────────────────────────────────
+  let done = 0;
+  let errors = 0;
+  let duplicados = 0;
+  let autoConfirmados = 0;
+
+  const autoConfirmOn = document.getElementById('chk-autoconfirm')?.checked;
+
+  // Procesar todos en paralelo
+  const promises = fileList.map(async (file, i) => {
+    const shortName = file.name.length > 20 ? file.name.slice(0,17) + '...' : file.name;
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('usuario', usuario);
+      if (autoConfirmOn) form.append('auto_confirm', '1');
+
+      const res  = await fetch(`${WORKER_URL}/api/upload`, { method: 'POST', body: form });
+      const data = await res.json();
+
+      done++;
+      status.textContent = `${done} / ${fileList.length}`;
+
+      if (data.ok) {
+        // Descartar duplicados automáticamente
+        if (data.preview.es_posible_duplicado) {
+          duplicados++;
+          pills[i].className = 'agent-pill error';
+          pills[i].innerHTML = `&#x2298; ${shortName} (duplicado)`;
+        } else if (data.auto_confirmado) {
+          // Auto-confirmed by worker — don't add to preview queue
+          autoConfirmados++;
+          pills[i].className = 'agent-pill done';
+          pills[i].innerHTML = `&#x2713; auto #${data.numero} ${shortName}`;
+        } else {
+          pills[i].className = 'agent-pill done';
+          pills[i].innerHTML = `&#x2713; ${shortName}`;
+          previewQueue.push(data.preview);
+        }
+      } else {
+        pills[i].className = 'agent-pill error';
+        pills[i].innerHTML = `&#x2715; ${shortName}`;
+        errors++;
+      }
+    } catch (err) {
+      done++;
+      errors++;
+      pills[i].className = 'agent-pill error';
+      pills[i].innerHTML = `&#x2715; ${shortName}`;
+    }
+  });
+
+  await Promise.all(promises);
+
+  // Resumen
+  const nuevos = previewQueue.length;
+  const partes = [];
+  if (autoConfirmados > 0) partes.push(`${autoConfirmados} auto`);
+  if (nuevos > 0) partes.push(`${nuevos} para revisar`);
+  if (duplicados > 0) partes.push(`${duplicados} duplicado${duplicados > 1 ? 's' : ''}`);
+  if (errors > 0) partes.push(`${errors} con error`);
+  showToast(partes.join(' · ') || 'Sin archivos procesados', (autoConfirmados + nuevos) > 0 ? 'ok' : 'err');
+────────────────────────────────────────────────────────────────────────────────
+
+
+PART C: After auto-confirmed uploads, reload the table so new rows appear.
+
+FIND (lines 790-794):
+────────────────────────────────────────────────────────────────────────────────
+  // Ocultar barra después de 1.5s
+  setTimeout(() => bar.classList.remove('show'), 1500);
+
+  // Mostrar primer preview de la cola
+  showNextPreview();
+────────────────────────────────────────────────────────────────────────────────
+
+REPLACE WITH:
+────────────────────────────────────────────────────────────────────────────────
+  // Ocultar barra después de 1.5s
+  setTimeout(() => bar.classList.remove('show'), 1500);
+
+  // Reload table if any were auto-confirmed
+  if (autoConfirmados > 0) cargarGastos();
+
+  // Mostrar primer preview de la cola
+  showNextPreview();
+────────────────────────────────────────────────────────────────────────────────
+
+
+================================================================================
+END OF DIFFS
+================================================================================
+
+SUMMARY OF BEHAVIOR:
+
+- Sidebar gets a new "Opciones" section with a checkbox "Auto-confirmar
+  conocidos" persisted in localStorage.
+
+- When the checkbox is on, FormData includes auto_confirm=1.
+
+- Worker POST /api/upload: after building the preview, if auto_confirm=1 AND
+  the four safety conditions are met (en_catalogo===true, confianza_global==='alta',
+  no duplicate, total>0), it runs the same INSERT as /api/confirm and returns
+  {ok:true, preview, auto_confirmado:true, numero}.
+
+- Frontend handleFiles: when data.auto_confirmado is truthy, the pill shows
+  "check auto #N filename" instead of the normal check, the preview is NOT
+  pushed to previewQueue, and the counter tracks auto-confirmed separately.
+
+- Toast message shows e.g. "3 auto · 2 para revisar" instead of "5 nuevos".
+
+- After all uploads, if any were auto-confirmed, cargarGastos() refreshes the
+  table so the new rows appear immediately.
+
+- Fallback: if auto_confirm=1 but conditions are NOT met (unknown provider,
+  low confidence, possible duplicate, or negative total), the response is the
+  normal preview — goes to the review queue as before.

@@ -1,0 +1,212 @@
+================================================================================
+  VIEWER INTEGRATION — Side-by-side document viewer for index.html
+================================================================================
+
+Instructions: Add the following CSS, HTML, and JS to index.html WITHOUT
+modifying existing code. Each section indicates WHERE to insert the code.
+
+
+================================================================================
+  1. CSS — Add BEFORE the closing </style> tag
+================================================================================
+
+  /* ── Document Viewer (side-by-side) ── */
+  .preview-panel.has-viewer .preview-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+
+  .preview-viewer {
+    background: #0a0c0b;
+    border-right: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 420px;
+    max-height: 70vh;
+    overflow: hidden;
+    padding: 8px;
+  }
+
+  .preview-viewer img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+  }
+
+  .preview-viewer iframe {
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+    border: none;
+    border-radius: 4px;
+    background: #1a1c1b;
+  }
+
+  .preview-fields-col {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    align-content: start;
+  }
+
+  .preview-fields-col .preview-field.wide  { grid-column: span 2; }
+  .preview-fields-col .preview-field.full   { grid-column: 1/-1; }
+
+  /* When NO viewer (no archivo_r2), preview-body keeps its original layout */
+  .preview-panel:not(.has-viewer) .preview-fields-col {
+    grid-column: 1/-1;
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  /* ── Mobile: stack vertically ── */
+  @media (max-width: 768px) {
+    .preview-panel.has-viewer .preview-body {
+      grid-template-columns: 1fr;
+    }
+
+    .preview-viewer {
+      min-height: 280px;
+      max-height: 50vh;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .preview-fields-col {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+
+================================================================================
+  2. HTML — Replace the existing <div class="preview-body"> block
+================================================================================
+
+  Remove this line:
+      <div class="preview-body">
+
+  And replace it with:
+      <div class="preview-body">
+        <div class="preview-viewer" id="prev-viewer" style="display:none">
+          <img id="prev-viewer-img" style="display:none" alt="Soporte">
+          <iframe id="prev-viewer-pdf" style="display:none"></iframe>
+        </div>
+        <div class="preview-fields-col">
+
+  Then, find the closing </div> that ends preview-body (the one right before
+  <div class="preview-footer">), and add an extra </div> before it to close
+  .preview-fields-col.
+
+  The resulting structure should be:
+
+      <div class="preview-body">
+        <div class="preview-viewer" id="prev-viewer" style="display:none">
+          <img id="prev-viewer-img" style="display:none" alt="Soporte">
+          <iframe id="prev-viewer-pdf" style="display:none"></iframe>
+        </div>
+        <div class="preview-fields-col">
+          <!-- all existing preview-field divs stay here unchanged -->
+          <div class="preview-field">
+            <div class="field-label">Total</div>
+            <div class="field-value big" id="prev-total">...</div>
+          </div>
+          ... (all other fields) ...
+        </div>  <!-- closes preview-fields-col -->
+      </div>    <!-- closes preview-body -->
+
+
+================================================================================
+  3. JS — Add this function BEFORE the existing showPreview function
+================================================================================
+
+  function updateDocViewer(archivoR2) {
+    const panel   = document.getElementById('preview-panel');
+    const viewer  = document.getElementById('prev-viewer');
+    const img     = document.getElementById('prev-viewer-img');
+    const pdf     = document.getElementById('prev-viewer-pdf');
+
+    // Reset
+    img.style.display = 'none';
+    pdf.style.display = 'none';
+    img.src = '';
+    pdf.src = '';
+
+    if (!archivoR2) {
+      viewer.style.display = 'none';
+      panel.classList.remove('has-viewer');
+      return;
+    }
+
+    const src = `${WORKER_URL}/api/soporte/${archivoR2}`;
+    const ext = archivoR2.split('.').pop().toLowerCase();
+    const isImage = ['jpg','jpeg','png','gif','webp','bmp','tiff','tif'].includes(ext);
+
+    viewer.style.display = 'flex';
+    panel.classList.add('has-viewer');
+
+    if (isImage) {
+      img.src = src;
+      img.style.display = 'block';
+    } else {
+      // PDF or other document — use iframe
+      pdf.src = src;
+      pdf.style.display = 'block';
+    }
+  }
+
+
+================================================================================
+  4. JS — Add this line INSIDE the showPreview function
+================================================================================
+
+  Inside the showPreview(p) function, add this call right AFTER the line:
+      previewData = p;
+
+  Add:
+      updateDocViewer(p.archivo_r2 || null);
+
+  So the top of showPreview becomes:
+
+      function showPreview(p) {
+        previewData = p;
+        updateDocViewer(p.archivo_r2 || null);    // <-- ADD THIS LINE
+        ...
+
+
+================================================================================
+  5. JS — Add cleanup to cancelarPreview function
+================================================================================
+
+  Inside cancelarPreview(), add this line right AFTER:
+      document.getElementById('preview-panel').classList.remove('show');
+
+  Add:
+      updateDocViewer(null);
+
+  So it becomes:
+
+      function cancelarPreview() {
+        document.getElementById('preview-panel').classList.remove('show');
+        updateDocViewer(null);    // <-- ADD THIS LINE
+        ...
+
+
+================================================================================
+  SUMMARY OF CHANGES
+================================================================================
+
+  - CSS adds .has-viewer class that splits preview-body into 2 columns
+  - On mobile (<768px) columns stack vertically (viewer on top, fields below)
+  - HTML wraps existing fields in .preview-fields-col and adds .preview-viewer
+    with an <img> and <iframe> (both hidden by default)
+  - JS updateDocViewer() detects image vs PDF by file extension, shows the
+    correct element, and sets src to WORKER_URL/api/soporte/{archivo_r2}
+  - Image extensions: jpg, jpeg, png, gif, webp, bmp, tiff, tif
+  - Everything else (pdf, etc.) renders in an iframe
+  - When archivo_r2 is null/empty, the viewer hides and layout returns to
+    the original 3-column field grid
+  - Uses existing CSS variables: --bg, --border, --accent, --text, etc.
+  - WORKER_URL = 'https://cocicp-gastos.ddropero.workers.dev'

@@ -1,0 +1,555 @@
+================================================================================
+COCICP Gastos — WhatsApp Integration via Twilio
+================================================================================
+
+Este archivo contiene todo el codigo necesario para agregar un webhook de
+WhatsApp al Worker existente. Permite enviar una foto de factura por WhatsApp
+y registrar el gasto automaticamente.
+
+Flujo:
+  1. Usuario envia foto de factura por WhatsApp al numero Twilio
+  2. Twilio hace POST al webhook del Worker
+  3. Worker descarga la imagen con Basic Auth (Twilio credentials)
+  4. Convierte a base64, corre los 3 agentes en paralelo
+  5. Si confianza alta y proveedor en catalogo: auto-confirma e inserta en D1
+  6. Si confianza baja: marca como "revision" y envia link al frontend
+  7. Responde por WhatsApp con resumen del gasto
+
+
+================================================================================
+SECCION 1: Codigo para agregar al worker.js
+================================================================================
+
+Agregar estas dos rutas ANTES de la linea:
+  return json({ error: 'Not found' }, 404);
+
+--- INICIO CODIGO WORKER ---
+
+    // ── GET /api/whatsapp/webhook — Verificacion Twilio ────────
+    if (request.method === 'GET' && url.pathname === '/api/whatsapp/webhook') {
+      // Twilio no usa challenge como Meta; simplemente verificamos que
+      // el endpoint responde 200. Si se quiere validar firma, ver Seccion 4.
+      return new Response('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } });
+    }
+
+    // ── POST /api/whatsapp/webhook — Recibir mensaje WhatsApp ──
+    if (request.method === 'POST' && url.pathname === '/api/whatsapp/webhook') {
+      try {
+        // Twilio envia application/x-www-form-urlencoded
+        const formData = await request.formData();
+
+        const from       = formData.get('From')      || '';  // whatsapp:+57300...
+        const body       = formData.get('Body')       || '';
+        const numMedia   = parseInt(formData.get('NumMedia') || '0');
+        const mediaUrl   = formData.get('MediaUrl0')  || null;
+        const mediaType  = formData.get('MediaContentType0') || null;
+
+        // Determinar usuario por numero de telefono
+        const NUMEROS_AUTORIZADOS = {
+          // Agregar los numeros reales aqui (formato whatsapp:+57XXXXXXXXXX)
+          'whatsapp:+573001234567': 'david',
+          'whatsapp:+573009876543': 'andrea',
+        };
+        const usuario = NUMEROS_AUTORIZADOS[from];
+
+        if (!usuario) {
+          // Numero no autorizado — responder y salir
+          await sendWhatsAppReply(
+            env, from,
+            'No autorizado. Contacte al administrador de COCICP.'
+          );
+          return new Response('<Response></Response>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' }
+          });
+        }
+
+        // Sin imagen adjunta
+        if (numMedia === 0 || !mediaUrl) {
+          await sendWhatsAppReply(
+            env, from,
+            'Envie una foto o PDF de la factura para registrar el gasto.'
+          );
+          return new Response('<Response></Response>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' }
+          });
+        }
+
+        // --- Descargar imagen desde Twilio con Basic Auth ---
+        const twilioSid   = env.TWILIO_ACCOUNT_SID;
+        const twilioToken = env.TWILIO_AUTH_TOKEN;
+        const basicAuth   = btoa(`${twilioSid}:${twilioToken}`);
+
+        const mediaRes = await fetch(mediaUrl, {
+          headers: { 'Authorization': `Basic ${basicAuth}` }
+        });
+
+        if (!mediaRes.ok) {
+          await sendWhatsAppReply(env, from, 'Error descargando imagen. Intente de nuevo.');
+          return new Response('<Response></Response>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' }
+          });
+        }
+
+        const mediaBuf   = await mediaRes.arrayBuffer();
+        const mediaBytes = new Uint8Array(mediaBuf);
+        let binary = '';
+        for (let i = 0; i < mediaBytes.length; i++) {
+          binary += String.fromCharCode(mediaBytes[i]);
+        }
+        const b64 = btoa(binary);
+
+        // Determinar mime type real
+        const mimeType = mediaType || 'image/jpeg';
+
+        // --- Guardar en R2 ---
+        const timestamp = Date.now();
+        const ext = mimeType.includes('pdf') ? 'pdf'
+                  : mimeType.includes('png') ? 'png' : 'jpg';
+        const r2Key = `soportes/wa-${timestamp}.${ext}`;
+        const r2Promise = env.BUCKET.put(r2Key, mediaBuf, {
+          httpMetadata: { contentType: mimeType }
+        });
+
+        // --- Correr 3 agentes en paralelo ---
+        const apiKey = env.ANTHROPIC_API_KEY;
+        const [a1, a2, a3] = await Promise.all([
+          runAgent1(b64, mimeType, apiKey),
+          runAgent2(b64, mimeType, env.DB, apiKey),
+          runAgent3(b64, mimeType, apiKey)
+        ]);
+
+        await r2Promise;
+
+        // --- Merge ---
+        const preview = mergeAgents(a1, a2, a3, usuario);
+        preview.archivo_r2 = r2Key;
+        preview.origen = 'whatsapp';
+
+        // --- Verificar duplicado ---
+        const dup = await checkDuplicate(
+          env.DB,
+          preview.numero_documento,
+          preview.total,
+          preview.fecha,
+          preview.proveedor_nit
+        );
+
+        if (dup) {
+          const r = dup.registro;
+          await sendWhatsAppReply(
+            env, from,
+            `Duplicado: ya existe #${r.numero} (${r.proveedor_nombre}) $${formatCOP(r.total)}`
+          );
+          return new Response('<Response></Response>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/xml' }
+          });
+        }
+
+        // --- Decidir: auto-confirmar o enviar a revision ---
+        const esConfiable = preview.confianza_global !== 'baja'
+                         && preview.en_catalogo
+                         && !preview.errores_parciales
+                         && preview.total > 0;
+
+        let replyMsg;
+
+        if (esConfiable) {
+          // Auto-confirmar: insertar en D1
+          const maxRow = await env.DB.prepare(
+            'SELECT MAX(numero) as max FROM gastos'
+          ).first();
+          const numero = (maxRow?.max || 0) + 1;
+
+          await env.DB.prepare(`
+            INSERT INTO gastos
+              (numero, fecha, proveedor_nit, proveedor_nombre, numero_documento,
+               concepto, categoria, valor_base, iva, inc, otros_impuestos,
+               total, es_nota_credito, medio_pago, referencia_pago,
+               archivo_r2, usuario, estado, notas)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).bind(
+            numero,
+            preview.fecha,
+            preview.proveedor_nit,
+            preview.proveedor_nombre,
+            preview.numero_documento,
+            preview.concepto,
+            preview.categoria,
+            preview.valor_base || 0,
+            preview.iva || 0,
+            preview.inc || 0,
+            preview.otros_impuestos || 0,
+            preview.total,
+            preview.es_nota_credito ? 1 : 0,
+            preview.medio_pago,
+            preview.referencia_pago,
+            r2Key,
+            usuario,
+            'confirmado',
+            'Registrado via WhatsApp'
+          ).run();
+
+          replyMsg = [
+            `\u2713 #${numero}`,
+            preview.proveedor_nombre,
+            `$${formatCOP(preview.total)}`,
+            preview.categoria
+          ].join(' ');
+
+        } else {
+          // Enviar a revision
+          const maxRow = await env.DB.prepare(
+            'SELECT MAX(numero) as max FROM gastos'
+          ).first();
+          const numero = (maxRow?.max || 0) + 1;
+
+          await env.DB.prepare(`
+            INSERT INTO gastos
+              (numero, fecha, proveedor_nit, proveedor_nombre, numero_documento,
+               concepto, categoria, valor_base, iva, inc, otros_impuestos,
+               total, es_nota_credito, medio_pago, referencia_pago,
+               archivo_r2, usuario, estado, notas)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).bind(
+            numero,
+            preview.fecha,
+            preview.proveedor_nit,
+            preview.proveedor_nombre || 'Desconocido',
+            preview.numero_documento,
+            preview.concepto,
+            preview.categoria,
+            preview.valor_base || 0,
+            preview.iva || 0,
+            preview.inc || 0,
+            preview.otros_impuestos || 0,
+            preview.total,
+            preview.es_nota_credito ? 1 : 0,
+            preview.medio_pago,
+            preview.referencia_pago,
+            r2Key,
+            usuario,
+            'revision',
+            'Requiere revision - registrado via WhatsApp'
+          ).run();
+
+          // URL del frontend para revisar
+          const frontendUrl = env.FRONTEND_URL || 'https://cocicp.davidduque.com';
+          replyMsg = [
+            `\u26a0\ufe0f Revisar:`,
+            preview.proveedor_nombre || 'Desconocido',
+            `$${formatCOP(preview.total)}`,
+            frontendUrl
+          ].join(' ');
+        }
+
+        // --- Responder por WhatsApp ---
+        await sendWhatsAppReply(env, from, replyMsg);
+
+        return new Response('<Response></Response>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/xml' }
+        });
+
+      } catch (err) {
+        console.error('WhatsApp webhook error:', err);
+        return new Response('<Response></Response>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/xml' }
+        });
+      }
+    }
+
+--- FIN CODIGO WORKER ---
+
+
+================================================================================
+SECCION 2: Funciones auxiliares para agregar al worker.js
+================================================================================
+
+Agregar ANTES de la linea:
+  export default {
+
+--- INICIO FUNCIONES AUXILIARES ---
+
+// ── Formato COP sin decimales ───────────────────────────────
+function formatCOP(value) {
+  if (!value && value !== 0) return '0';
+  return Math.round(Math.abs(value)).toLocaleString('es-CO');
+}
+
+// ── Enviar respuesta por WhatsApp via Twilio REST API ───────
+async function sendWhatsAppReply(env, to, message) {
+  const twilioSid   = env.TWILIO_ACCOUNT_SID;
+  const twilioToken = env.TWILIO_AUTH_TOKEN;
+
+  if (!twilioSid || !twilioToken) {
+    console.error('Twilio credentials not configured');
+    return;
+  }
+
+  const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`;
+  const basicAuth = btoa(`${twilioSid}:${twilioToken}`);
+
+  // El numero "From" de Twilio Sandbox o numero comprado
+  const twilioFrom = env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886';
+
+  const params = new URLSearchParams();
+  params.append('From', twilioFrom);
+  params.append('To', to);
+  params.append('Body', message);
+
+  try {
+    const res = await fetch(twilioUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${basicAuth}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('Twilio send error:', res.status, err);
+    }
+  } catch (err) {
+    console.error('Twilio fetch error:', err);
+  }
+}
+
+--- FIN FUNCIONES AUXILIARES ---
+
+
+================================================================================
+SECCION 3: Secrets adicionales en wrangler.toml (variables, no secrets)
+================================================================================
+
+Agregar al final de la seccion [vars] en wrangler.toml:
+
+--- INICIO CONFIG ---
+
+[vars]
+ENVIRONMENT = "production"
+TWILIO_WHATSAPP_FROM = "whatsapp:+14155238886"
+FRONTEND_URL = "https://cocicp.davidduque.com"
+
+--- FIN CONFIG ---
+
+Los secrets se configuran via CLI (ver Seccion 6).
+
+
+================================================================================
+SECCION 4: Validacion de firma Twilio (opcional, recomendado para produccion)
+================================================================================
+
+Twilio firma cada request con X-Twilio-Signature usando el Auth Token.
+Para validar, agregar esta funcion y usarla al inicio del POST handler.
+
+--- INICIO VALIDACION FIRMA ---
+
+async function validateTwilioSignature(request, authToken, webhookUrl) {
+  const signature = request.headers.get('X-Twilio-Signature');
+  if (!signature) return false;
+
+  const formData = await request.clone().formData();
+  const params = {};
+  for (const [key, value] of formData.entries()) {
+    params[key] = value;
+  }
+
+  // Ordenar parametros alfabeticamente y concatenar
+  const sortedKeys = Object.keys(params).sort();
+  let dataStr = webhookUrl;
+  for (const key of sortedKeys) {
+    dataStr += key + params[key];
+  }
+
+  // HMAC-SHA1
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(authToken);
+  const msgData = encoder.encode(dataStr);
+
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', keyData, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
+  const computed = btoa(String.fromCharCode(...new Uint8Array(sig)));
+
+  return computed === signature;
+}
+
+// Uso al inicio del POST /api/whatsapp/webhook:
+//
+// const webhookUrl = 'https://cocicp-gastos.TU-CUENTA.workers.dev/api/whatsapp/webhook';
+// const isValid = await validateTwilioSignature(request, env.TWILIO_AUTH_TOKEN, webhookUrl);
+// if (!isValid) {
+//   return new Response('Unauthorized', { status: 403 });
+// }
+
+--- FIN VALIDACION FIRMA ---
+
+
+================================================================================
+SECCION 5: Numeros autorizados
+================================================================================
+
+El mapa NUMEROS_AUTORIZADOS dentro del POST handler controla quien puede
+enviar facturas. Actualizar con los numeros reales:
+
+  const NUMEROS_AUTORIZADOS = {
+    'whatsapp:+57300XXXXXXX': 'david',    // Dr. David Duque
+    'whatsapp:+57300XXXXXXX': 'andrea',   // Andrea Cepeda
+  };
+
+El formato es whatsapp:+[codigo pais][numero] — Twilio envia asi el campo "From".
+
+Para agregar mas usuarios en el futuro, simplemente agregar entradas al mapa.
+Alternativa: mover a D1 y consultar la tabla con SELECT usuario FROM
+usuarios_wa WHERE telefono = ?.
+
+
+================================================================================
+SECCION 6: Setup Twilio paso a paso
+================================================================================
+
+1. CREAR CUENTA TWILIO
+   - Ir a https://www.twilio.com/try-twilio
+   - Registrarse (cuenta gratuita incluye sandbox de WhatsApp)
+   - Anotar Account SID y Auth Token del dashboard
+
+2. ACTIVAR SANDBOX DE WHATSAPP
+   - En Twilio Console: Messaging > Try it out > Send a WhatsApp message
+   - Seguir instrucciones: enviar "join [palabra-clave]" al +1 415 523 8886
+   - Esto conecta tu numero personal al sandbox
+   - El numero sandbox es whatsapp:+14155238886
+
+3. CONFIGURAR WEBHOOK
+   - En Twilio Console: Messaging > Try it out > Send a WhatsApp message
+   - En "Sandbox Configuration":
+     - WHEN A MESSAGE COMES IN:
+       URL:    https://cocicp-gastos.TU-CUENTA.workers.dev/api/whatsapp/webhook
+       Method: HTTP POST
+
+4. CONFIGURAR SECRETS EN CLOUDFLARE
+   Ejecutar desde la carpeta del proyecto:
+
+   wrangler secret put TWILIO_ACCOUNT_SID
+   # Pegar el Account SID de Twilio > Enter
+
+   wrangler secret put TWILIO_AUTH_TOKEN
+   # Pegar el Auth Token de Twilio > Enter
+
+   # Recordar que ANTHROPIC_API_KEY ya debe estar configurado:
+   wrangler secret put ANTHROPIC_API_KEY
+
+5. REDESPLEGAR EL WORKER
+   wrangler deploy
+
+6. PROBAR
+   - Enviar una foto de factura al numero de WhatsApp del sandbox
+   - Verificar respuesta:
+     - Confianza alta + catalogo: "check #124 Terpel $450,000 Combustible"
+     - Confianza baja: "warning Revisar: Desconocido $450,000 cocicp.davidduque.com"
+   - Verificar en D1: wrangler d1 execute cocicp-gastos \
+       --command="SELECT numero, proveedor_nombre, total, estado FROM gastos ORDER BY id DESC LIMIT 5"
+
+7. PRODUCCION (numero dedicado)
+   - Comprar numero en Twilio (desde ~$1/mes)
+   - Solicitar acceso a WhatsApp Business API via Twilio
+   - Registrar numero en Meta Business > WhatsApp > Business Accounts
+   - Actualizar TWILIO_WHATSAPP_FROM en wrangler.toml con el nuevo numero
+   - Redesplegar: wrangler deploy
+
+
+================================================================================
+SECCION 7: Resumen de respuestas WhatsApp
+================================================================================
+
+Caso 1 — Auto-confirmado (confianza alta, proveedor en catalogo):
+  check #123 Terpel $450,000 Combustible
+
+Caso 2 — Requiere revision (confianza baja o proveedor desconocido):
+  warning Revisar: Desconocido $450,000 cocicp.davidduque.com
+
+Caso 3 — Duplicado detectado:
+  Duplicado: ya existe #98 (Terpel) $450,000
+
+Caso 4 — Sin imagen:
+  Envie una foto o PDF de la factura para registrar el gasto.
+
+Caso 5 — Numero no autorizado:
+  No autorizado. Contacte al administrador de COCICP.
+
+Nota: los emojis check y warning en los mensajes reales son los caracteres
+Unicode U+2713 (check mark) y U+26A0 (warning sign).
+
+
+================================================================================
+SECCION 8: Referencia rapida de variables de entorno
+================================================================================
+
+Secrets (wrangler secret put):
+  ANTHROPIC_API_KEY       — API key de Anthropic (ya existente)
+  TWILIO_ACCOUNT_SID      — Account SID de Twilio
+  TWILIO_AUTH_TOKEN        — Auth Token de Twilio
+
+Variables (wrangler.toml [vars]):
+  TWILIO_WHATSAPP_FROM    — Numero WhatsApp de Twilio (default sandbox)
+  FRONTEND_URL            — URL del frontend para links de revision
+
+
+================================================================================
+SECCION 9: Diagrama de flujo completo
+================================================================================
+
+  WhatsApp (foto factura)
+       |
+       v
+  Twilio (POST webhook)
+       |
+       v
+  Worker: POST /api/whatsapp/webhook
+       |
+       +-- Validar numero autorizado
+       |
+       +-- Descargar imagen (Basic Auth Twilio)
+       |
+       +-- Convertir a base64
+       |
+       +-- Guardar en R2 (soportes/wa-{timestamp}.{ext})
+       |
+       +-- Promise.all([Agent1, Agent2, Agent3])
+       |       |         |         |
+       |       v         v         v
+       |    Fiscal   Proveedor  Clasificacion
+       |       |         |         |
+       |       +----+----+----+----+
+       |            |
+       |            v
+       |       mergeAgents()
+       |            |
+       +-- checkDuplicate()
+       |       |
+       |       +-- SI duplicado --> responder "Duplicado..."
+       |       |
+       |       +-- NO duplicado:
+       |               |
+       |               +-- confianza alta + catalogo?
+       |               |       |
+       |               |       SI --> INSERT estado='confirmado'
+       |               |       |      reply: "check #N Proveedor $Total Cat"
+       |               |       |
+       |               |       NO --> INSERT estado='revision'
+       |               |              reply: "warning Revisar: Prov $Total URL"
+       |               |
+       v
+  sendWhatsAppReply() --> Twilio REST API --> WhatsApp usuario
+
+
+================================================================================
+FIN DEL ARCHIVO
+================================================================================

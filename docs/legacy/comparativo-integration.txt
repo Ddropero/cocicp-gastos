@@ -1,0 +1,395 @@
+================================================================================
+ COMPARATIVO MENSUAL — Integración completa
+ Archivo: comparativo-integration.txt
+ Fecha: 2026-04-06
+================================================================================
+
+Este archivo contiene TODO el código necesario para agregar la funcionalidad
+de comparativo mensual al proyecto COCICP Gastos. No modifica archivos
+existentes. Las 3 secciones indican DÓNDE pegar cada bloque.
+
+
+================================================================================
+ SECCIÓN 1 — WORKER: Nuevo endpoint GET /api/comparativo
+================================================================================
+
+Pegar en worker.js ANTES de la línea:
+    return json({ error: 'Not found' }, 404);
+
+--- INICIO CÓDIGO WORKER ---
+
+    // ── GET /api/comparativo ───────────────────────────────────
+    // Compara dos meses: ?mes1=2026-03&mes2=2026-04
+    if (request.method === 'GET' && url.pathname === '/api/comparativo') {
+      try {
+        const mes1 = url.searchParams.get('mes1');
+        const mes2 = url.searchParams.get('mes2');
+        if (!mes1 || !mes2) return json({ error: 'Parámetros mes1 y mes2 requeridos (formato YYYY-MM)' }, 400);
+        if (!/^\d{4}-\d{2}$/.test(mes1) || !/^\d{4}-\d{2}$/.test(mes2)) {
+          return json({ error: 'Formato inválido. Usar YYYY-MM' }, 400);
+        }
+
+        const desde1 = `${mes1}-01`;
+        const hasta1 = `${mes1}-31`;
+        const desde2 = `${mes2}-01`;
+        const hasta2 = `${mes2}-31`;
+
+        const [r1, r2] = await Promise.all([
+          env.DB.prepare('SELECT categoria, SUM(total) as total, COUNT(*) as registros FROM gastos WHERE fecha BETWEEN ? AND ? GROUP BY categoria ORDER BY categoria')
+            .bind(desde1, hasta1).all(),
+          env.DB.prepare('SELECT categoria, SUM(total) as total, COUNT(*) as registros FROM gastos WHERE fecha BETWEEN ? AND ? GROUP BY categoria ORDER BY categoria')
+            .bind(desde2, hasta2).all()
+        ]);
+
+        const catMap = {};
+
+        // Acumular mes1
+        let granTotal1 = 0;
+        let totalReg1 = 0;
+        for (const row of (r1.results || [])) {
+          if (!catMap[row.categoria]) catMap[row.categoria] = { mes1: 0, mes2: 0, reg1: 0, reg2: 0 };
+          catMap[row.categoria].mes1 = row.total;
+          catMap[row.categoria].reg1 = row.registros;
+          granTotal1 += row.total;
+          totalReg1 += row.registros;
+        }
+
+        // Acumular mes2
+        let granTotal2 = 0;
+        let totalReg2 = 0;
+        for (const row of (r2.results || [])) {
+          if (!catMap[row.categoria]) catMap[row.categoria] = { mes1: 0, mes2: 0, reg1: 0, reg2: 0 };
+          catMap[row.categoria].mes2 = row.total;
+          catMap[row.categoria].reg2 = row.registros;
+          granTotal2 += row.total;
+          totalReg2 += row.registros;
+        }
+
+        // Construir array ordenado por diferencia absoluta desc
+        const categorias = Object.entries(catMap).map(([cat, v]) => {
+          const diff = v.mes2 - v.mes1;
+          const pct = v.mes1 !== 0 ? ((diff / Math.abs(v.mes1)) * 100) : (v.mes2 !== 0 ? 100 : 0);
+          return {
+            categoria: cat,
+            mes1: v.mes1,
+            mes2: v.mes2,
+            registros_mes1: v.reg1,
+            registros_mes2: v.reg2,
+            diferencia: diff,
+            porcentaje: Math.round(pct * 10) / 10
+          };
+        }).sort((a, b) => Math.abs(b.diferencia) - Math.abs(a.diferencia));
+
+        const diffTotal = granTotal2 - granTotal1;
+        const pctTotal = granTotal1 !== 0 ? Math.round(((diffTotal / Math.abs(granTotal1)) * 100) * 10) / 10 : 0;
+
+        return json({
+          ok: true,
+          mes1,
+          mes2,
+          resumen: {
+            total_mes1: granTotal1,
+            total_mes2: granTotal2,
+            diferencia: diffTotal,
+            porcentaje: pctTotal,
+            registros_mes1: totalReg1,
+            registros_mes2: totalReg2,
+            categorias_activas: categorias.length
+          },
+          categorias
+        });
+      } catch (err) {
+        return json({ error: err.message }, 500);
+      }
+    }
+
+--- FIN CÓDIGO WORKER ---
+
+
+================================================================================
+ SECCIÓN 2 — CSS: Estilos del modal comparativo
+================================================================================
+
+Pegar en index.html dentro de <style>, después de los estilos .dian-*
+(después de la línea: .dian-actions{display:flex;gap:10px;margin-top:16px})
+
+--- INICIO CÓDIGO CSS ---
+
+  /* ── Comparativo modal (reutiliza patrón .dian-*) ── */
+  #comp-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:150;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto}
+  #comp-overlay.show{display:flex}
+  .comp-controls{display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap}
+  .comp-field{display:flex;flex-direction:column;gap:4px}
+  .comp-field label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .comp-field input[type="month"]{
+    background:var(--bg);border:1px solid var(--border);border-radius:4px;
+    padding:6px 10px;color:var(--text);font-family:var(--mono);font-size:12px;
+    cursor:pointer
+  }
+  .comp-field input[type="month"]:focus{outline:none;border-color:var(--accent)}
+  .comp-field input[type="month"]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.5;cursor:pointer}
+  .comp-result-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
+  .comp-result-table th{text-align:left;padding:8px;color:var(--muted);font-weight:400;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+  .comp-result-table th:not(:first-child){text-align:right}
+  .comp-result-table td{padding:8px;border-bottom:1px solid var(--border)}
+  .comp-result-table td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+  .comp-result-table tr:hover{background:var(--bg)}
+  .comp-result-table tr.comp-total-row{border-top:2px solid var(--border);font-weight:500}
+  .comp-result-table tr.comp-total-row td{padding-top:12px}
+  .comp-up{color:#f0a0a0}
+  .comp-down{color:var(--accent)}
+  .comp-neutral{color:var(--muted)}
+  .comp-pct{font-size:10px;margin-left:4px;opacity:.7}
+  .comp-arrow{font-size:9px;margin-right:2px}
+  .comp-summary{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+  .comp-empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:12px}
+
+--- FIN CÓDIGO CSS ---
+
+
+================================================================================
+ SECCIÓN 3A — HTML: Botón sidebar "Comparativo"
+================================================================================
+
+Pegar en index.html dentro de <nav>, DESPUÉS de la sección "Exportar"
+(después de: </div> que cierra la sección de Exportar, antes de </nav>)
+
+--- INICIO CÓDIGO HTML SIDEBAR ---
+
+    <div class="nav-section">
+      <div class="nav-label">Análisis</div>
+      <div class="nav-item" onclick="abrirComparativo()" style="color:var(--accent2)">
+        <div class="nav-dot" style="background:var(--accent2)"></div> Comparativo
+      </div>
+    </div>
+
+--- FIN CÓDIGO HTML SIDEBAR ---
+
+
+================================================================================
+ SECCIÓN 3B — HTML: Modal overlay comparativo
+================================================================================
+
+Pegar en index.html DESPUÉS del cierre del modal DIAN:
+(después de: </div></div> que cierra el div.dian-overlay)
+
+--- INICIO CÓDIGO HTML MODAL ---
+
+<div id="comp-overlay" onclick="if(event.target===this)cerrarComparativo()">
+  <div class="dian-modal">
+    <div class="dian-header">
+      <h2>Comparativo mensual</h2>
+      <span id="comp-loading" style="font-size:11px;color:var(--muted);display:none">Consultando...</span>
+      <span class="dian-close" onclick="cerrarComparativo()">&#10005;</span>
+    </div>
+    <div class="comp-controls">
+      <div class="comp-field">
+        <label>Mes 1</label>
+        <input type="month" id="comp-mes1" value="2026-03">
+      </div>
+      <div class="comp-field">
+        <label>Mes 2</label>
+        <input type="month" id="comp-mes2" value="2026-04">
+      </div>
+      <button class="btn btn-primary" onclick="ejecutarComparativo()">Comparar</button>
+    </div>
+    <div class="dian-stats comp-summary" id="comp-summary"></div>
+    <div id="comp-results"></div>
+  </div>
+</div>
+
+--- FIN CÓDIGO HTML MODAL ---
+
+
+================================================================================
+ SECCIÓN 4 — JAVASCRIPT: Lógica del comparativo
+================================================================================
+
+Pegar en index.html dentro de <script>, al final (antes del cierre </script>).
+Usa WORKER_URL y fmt() que ya existen en el archivo.
+
+--- INICIO CÓDIGO JAVASCRIPT ---
+
+// ============================================================
+// Comparativo mensual
+// ============================================================
+
+function abrirComparativo() {
+  // Poner mes actual y mes anterior como defaults
+  const hoy = new Date();
+  const mesActual = hoy.toISOString().slice(0, 7);
+  const mesAnteriorDate = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+  const mesAnterior = mesAnteriorDate.toISOString().slice(0, 7);
+
+  document.getElementById('comp-mes1').value = mesAnterior;
+  document.getElementById('comp-mes2').value = mesActual;
+  document.getElementById('comp-summary').innerHTML = '';
+  document.getElementById('comp-results').innerHTML = '<div class="comp-empty">Selecciona dos meses y presiona Comparar</div>';
+  document.getElementById('comp-overlay').classList.add('show');
+}
+
+function cerrarComparativo() {
+  document.getElementById('comp-overlay').classList.remove('show');
+}
+
+async function ejecutarComparativo() {
+  const mes1 = document.getElementById('comp-mes1').value;
+  const mes2 = document.getElementById('comp-mes2').value;
+
+  if (!mes1 || !mes2) {
+    document.getElementById('comp-results').innerHTML = '<p style="color:var(--warn)">Selecciona ambos meses.</p>';
+    return;
+  }
+  if (mes1 === mes2) {
+    document.getElementById('comp-results').innerHTML = '<p style="color:var(--warn)">Los meses deben ser diferentes.</p>';
+    return;
+  }
+
+  document.getElementById('comp-loading').style.display = 'inline';
+  document.getElementById('comp-summary').innerHTML = '';
+  document.getElementById('comp-results').innerHTML = '';
+
+  try {
+    const res = await fetch(`${WORKER_URL}/api/comparativo?mes1=${mes1}&mes2=${mes2}`);
+    const data = await res.json();
+
+    document.getElementById('comp-loading').style.display = 'none';
+
+    if (!data.ok) {
+      document.getElementById('comp-results').innerHTML = `<p style="color:var(--warn)">Error: ${data.error}</p>`;
+      return;
+    }
+
+    renderComparativo(data);
+  } catch (err) {
+    document.getElementById('comp-loading').style.display = 'none';
+    document.getElementById('comp-results').innerHTML = `<p style="color:var(--warn)">Error de conexión: ${err.message}</p>`;
+  }
+}
+
+function nombreMes(mesStr) {
+  // mesStr = "2026-03"
+  const [y, m] = mesStr.split('-');
+  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  return meses[parseInt(m) - 1] + ' ' + y;
+}
+
+function renderComparativo(data) {
+  const r = data.resumen;
+  const label1 = nombreMes(data.mes1);
+  const label2 = nombreMes(data.mes2);
+
+  // Clases para diferencia total
+  const diffClass = r.diferencia > 0 ? 'comp-up' : r.diferencia < 0 ? 'comp-down' : 'comp-neutral';
+  const diffArrow = r.diferencia > 0 ? '&#9650;' : r.diferencia < 0 ? '&#9660;' : '&#9644;';
+  const diffSign = r.diferencia > 0 ? '+' : '';
+
+  // Summary cards
+  document.getElementById('comp-summary').innerHTML = `
+    <div class="dian-stat">
+      <div class="ds-label">${label1}</div>
+      <div class="ds-value">${fmt(r.total_mes1)}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.registros_mes1} registros</div>
+    </div>
+    <div class="dian-stat">
+      <div class="ds-label">${label2}</div>
+      <div class="ds-value">${fmt(r.total_mes2)}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.registros_mes2} registros</div>
+    </div>
+    <div class="dian-stat">
+      <div class="ds-label">Diferencia</div>
+      <div class="ds-value ${diffClass}">${diffSign}${fmt(r.diferencia)}</div>
+      <div style="font-size:10px;margin-top:2px" class="${diffClass}">
+        <span class="comp-arrow">${diffArrow}</span>${diffSign}${r.porcentaje}%
+      </div>
+    </div>
+    <div class="dian-stat">
+      <div class="ds-label">Categorías</div>
+      <div class="ds-value">${r.categorias_activas}</div>
+    </div>
+  `;
+
+  // Table
+  if (data.categorias.length === 0) {
+    document.getElementById('comp-results').innerHTML = '<div class="comp-empty">Sin datos en ambos meses seleccionados.</div>';
+    return;
+  }
+
+  let html = `<table class="comp-result-table">
+    <thead><tr>
+      <th>Categoría</th>
+      <th>${label1}</th>
+      <th>${label2}</th>
+      <th>Diferencia</th>
+      <th>%</th>
+    </tr></thead><tbody>`;
+
+  for (const cat of data.categorias) {
+    const cls = cat.diferencia > 0 ? 'comp-up' : cat.diferencia < 0 ? 'comp-down' : 'comp-neutral';
+    const arrow = cat.diferencia > 0 ? '&#9650; ' : cat.diferencia < 0 ? '&#9660; ' : '';
+    const sign = cat.diferencia > 0 ? '+' : '';
+    const pctSign = cat.porcentaje > 0 ? '+' : '';
+
+    html += `<tr>
+      <td>${cat.categoria}</td>
+      <td>${cat.mes1 !== 0 ? fmt(cat.mes1) : '<span class="comp-neutral">—</span>'}</td>
+      <td>${cat.mes2 !== 0 ? fmt(cat.mes2) : '<span class="comp-neutral">—</span>'}</td>
+      <td class="${cls}"><span class="comp-arrow">${arrow}</span>${sign}${fmt(cat.diferencia)}</td>
+      <td class="${cls}">${pctSign}${cat.porcentaje}%</td>
+    </tr>`;
+  }
+
+  // Total row
+  const totalCls = r.diferencia > 0 ? 'comp-up' : r.diferencia < 0 ? 'comp-down' : 'comp-neutral';
+  const totalArrow = r.diferencia > 0 ? '&#9650; ' : r.diferencia < 0 ? '&#9660; ' : '';
+  const totalSign = r.diferencia > 0 ? '+' : '';
+  const totalPctSign = r.porcentaje > 0 ? '+' : '';
+
+  html += `<tr class="comp-total-row">
+    <td style="font-family:var(--serif);font-size:13px">TOTAL</td>
+    <td style="font-weight:600">${fmt(r.total_mes1)}</td>
+    <td style="font-weight:600">${fmt(r.total_mes2)}</td>
+    <td class="${totalCls}" style="font-weight:600"><span class="comp-arrow">${totalArrow}</span>${totalSign}${fmt(r.diferencia)}</td>
+    <td class="${totalCls}" style="font-weight:600">${totalPctSign}${r.porcentaje}%</td>
+  </tr>`;
+
+  html += '</tbody></table>';
+
+  document.getElementById('comp-results').innerHTML = html;
+}
+
+--- FIN CÓDIGO JAVASCRIPT ---
+
+
+================================================================================
+ NOTAS DE INTEGRACIÓN
+================================================================================
+
+1. WORKER_URL ya está definido como:
+   const WORKER_URL = 'https://cocicp-gastos.ddropero.workers.dev';
+
+2. La función fmt() ya existe y formatea COP:
+   const fmt = n => new Intl.NumberFormat('es-CO', {
+     style: 'currency', currency: 'COP', maximumFractionDigits: 0
+   }).format(n);
+
+3. El modal reutiliza las clases CSS existentes:
+   .dian-modal, .dian-header, .dian-close, .dian-stat, .ds-label, .ds-value
+
+4. Colores:
+   - Rojo (#f0a0a0 / .comp-up) = aumentos de gasto (malo)
+   - Verde (var(--accent) / .comp-down) = disminuciones de gasto (bueno)
+   - Gris (var(--muted) / .comp-neutral) = sin cambio
+
+5. El endpoint usa BETWEEN con fecha -01 a -31, lo que funciona
+   correctamente porque D1/SQLite compara strings lexicográficamente
+   y las fechas están en formato YYYY-MM-DD.
+
+6. Las categorías se ordenan por diferencia absoluta descendente
+   para que los cambios más significativos aparezcan primero.
+
+7. El botón sidebar usa el estilo accent2 (dorado) como el botón DIAN,
+   en una nueva sección "Análisis".
+
+8. Después de deploy del worker actualizado:
+   wrangler deploy
